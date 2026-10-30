@@ -1,3 +1,26 @@
+# Local runtime data and binaries
+/data/
 *.exe
 *.test
 *.out
+
+# Frontend build and dependencies
+web/node_modules/
+web/dist/
+web/coverage/
+web/.vite/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local agent tooling (not part of the public project)
+.agents/
+.claude/
+agent/
+skills-lock.json
+
+# Empty leftover directory from the repository flatten; delete locally if present.
+/yesbook/
