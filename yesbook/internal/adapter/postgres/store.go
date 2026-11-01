@@ -80,6 +80,7 @@ func (s *Store) GetJob(ctx context.Context, tenantID, jobID string) (*document.J
 	if err != nil {
 		return nil, fmt.Errorf("scan job: %w", err)
 	}
+	r.CreatedAt, r.UpdatedAt = r.CreatedAt.UTC(), r.UpdatedAt.UTC()
 	return document.RestoreJob(r), nil
 }
 
@@ -159,6 +160,7 @@ func scanVersion(row pgx.Row) (document.Version, error) {
 	if err != nil {
 		return document.Version{}, fmt.Errorf("scan version: %w", err)
 	}
+	v.CreatedAt = v.CreatedAt.UTC()
 	return v, nil
 }
 
@@ -245,7 +247,7 @@ func (s *Store) Spend(ctx context.Context, jobID string) (document.Spend, error)
 		return document.Spend{}, fmt.Errorf("sum attempts: %w", err)
 	}
 	if first != nil {
-		sp.FirstAttemptAt = *first
+		sp.FirstAttemptAt = first.UTC()
 	}
 	return sp, nil
 }

@@ -14,8 +14,9 @@ import (
 	"github.com/avi-p/yesbook/internal/processing"
 )
 
-// Set YESBOOK_TEST_DATABASE_URL to a disposable database to run these tests,
-// for example postgres://yesbook:yesbook@localhost:5433/yesbook?sslmode=disable.
+// Set YESBOOK_TEST_DATABASE_URL to a disposable database to run these tests;
+// they truncate every table. docker compose creates one:
+// postgres://yesbook:yesbook@localhost:5433/yesbook_test?sslmode=disable.
 func newStore(t *testing.T) *postgres.Store {
 	t.Helper()
 	url := os.Getenv("YESBOOK_TEST_DATABASE_URL")

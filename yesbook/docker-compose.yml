@@ -9,6 +9,21 @@ services:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Integration tests truncate their database, so they get their own.
+      - ./deploy/local/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yesbook"]
+      interval: 2s
+      retries: 15
+
+  # Optional OCR and table extraction for scans:
+  #   docker compose --profile docling up -d
+  #   YESBOOK_DOCLING_URL=http://localhost:5001
+  docling:
+    profiles: ["docling"]
+    image: quay.io/docling-project/docling-serve:latest
+    ports:
+      - "5001:5001"
 
 volumes:
   pgdata:
