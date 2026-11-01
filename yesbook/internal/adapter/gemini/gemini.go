@@ -1,5 +1,5 @@
 // Package gemini extracts handwriting, formulas, diagrams and hard scans with
-// Gemini on Vertex AI.
+// Gemini on Vertex AI or the Gemini Developer API.
 package gemini
 
 import (
@@ -23,14 +23,22 @@ type Extractor struct {
 	pricing  vision.Pricing
 }
 
-// New uses Application Default Credentials; on Cloud Run that is the
-// worker's service account, which needs roles/aiplatform.user.
-func New(ctx context.Context, project, location, model string, r vision.Renderer, pricing vision.Pricing) (*Extractor, error) {
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		Backend:  genai.BackendVertexAI,
-		Project:  project,
-		Location: location,
-	})
+// Connection selects the endpoint. With an APIKey it uses the Gemini
+// Developer API; otherwise Vertex AI in Project and Location with
+// Application Default Credentials, which on Cloud Run is the worker's
+// service account and needs roles/aiplatform.user.
+type Connection struct {
+	APIKey   string
+	Project  string
+	Location string
+}
+
+func New(ctx context.Context, conn Connection, model string, r vision.Renderer, pricing vision.Pricing) (*Extractor, error) {
+	cfg := &genai.ClientConfig{Backend: genai.BackendVertexAI, Project: conn.Project, Location: conn.Location}
+	if conn.APIKey != "" {
+		cfg = &genai.ClientConfig{Backend: genai.BackendGeminiAPI, APIKey: conn.APIKey}
+	}
+	client, err := genai.NewClient(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create gemini client: %w", err)
 	}

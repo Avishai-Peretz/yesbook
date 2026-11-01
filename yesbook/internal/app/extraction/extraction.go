@@ -25,7 +25,7 @@ import (
 //
 //	YESBOOK_DOCLING_URL, YESBOOK_DOCLING_VERSION, YESBOOK_DOCLING_API_KEY
 //	YESBOOK_DOCUMENTAI_PROCESSOR, YESBOOK_DOCUMENTAI_LOCATION, YESBOOK_DOCUMENTAI_VERSION, YESBOOK_DOCUMENTAI_PAGE_COST_MICROS
-//	YESBOOK_PROJECT, YESBOOK_GEMINI_LOCATION, YESBOOK_GEMINI_MODEL, YESBOOK_GEMINI_PRICE_IN, YESBOOK_GEMINI_PRICE_OUT
+//	YESBOOK_GEMINI_API_KEY or YESBOOK_PROJECT and YESBOOK_GEMINI_LOCATION, YESBOOK_GEMINI_MODEL, YESBOOK_GEMINI_PRICE_IN, YESBOOK_GEMINI_PRICE_OUT
 //	YESBOOK_OPENAI_API_KEY, YESBOOK_OPENAI_MODEL, YESBOOK_OPENAI_PRICE_IN, YESBOOK_OPENAI_PRICE_OUT
 //
 // Prices are micro-dollars per million tokens.
@@ -47,12 +47,17 @@ func Chains(ctx context.Context, pdf *pdfium.Engine, closers *app.Closers, log *
 		closers.Add(e)
 		dai = e
 	}
-	if project, loc := platform.Env("YESBOOK_PROJECT", ""), platform.Env("YESBOOK_GEMINI_LOCATION", ""); project != "" && loc != "" {
+	conn := gemini.Connection{
+		APIKey:   platform.Env("YESBOOK_GEMINI_API_KEY", ""),
+		Project:  platform.Env("YESBOOK_PROJECT", ""),
+		Location: platform.Env("YESBOOK_GEMINI_LOCATION", ""),
+	}
+	if conn.APIKey != "" || (conn.Project != "" && conn.Location != "") {
 		price, err := pricing("YESBOOK_GEMINI")
 		if err != nil {
 			return nil, err
 		}
-		e, err := gemini.New(ctx, project, loc, platform.Env("YESBOOK_GEMINI_MODEL", gemini.DefaultModel), pdf, price)
+		e, err := gemini.New(ctx, conn, platform.Env("YESBOOK_GEMINI_MODEL", gemini.DefaultModel), pdf, price)
 		if err != nil {
 			return nil, err
 		}
