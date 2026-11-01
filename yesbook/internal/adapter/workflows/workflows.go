@@ -25,7 +25,7 @@ func New(client *executions.Client, workflow string) *Starter {
 func (s *Starter) Start(ctx context.Context, tenantID, jobID string) error {
 	arg, err := json.Marshal(map[string]string{"tenant_id": tenantID, "job_id": jobID})
 	if err != nil {
-		return err
+		return fmt.Errorf("encode workflow argument: %w", err)
 	}
 	_, err = s.client.CreateExecution(ctx, &executionspb.CreateExecutionRequest{
 		Parent:    s.workflow,

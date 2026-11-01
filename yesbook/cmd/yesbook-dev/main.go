@@ -31,7 +31,7 @@ import (
 	"github.com/avi-p/yesbook/internal/processing"
 )
 
-const defaultAPIKeys = "dev-tenant:dev-key-0123456789abcdef"
+const defaultAPIKeys = "dev-tenant:dev-key-0123456789abcdef" //nolint:gosec // published key for local development only
 
 // store is what both the memory and the PostgreSQL adapter provide.
 type store interface {
@@ -44,8 +44,9 @@ type store interface {
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if err := run(ctx); err != nil {
+	err := run(ctx)
+	stop()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -85,7 +86,7 @@ func run(ctx context.Context) error {
 	}
 
 	var closers app.Closers
-	defer closers.Close() //nolint:errcheck // best effort on exit
+	defer closers.Close()
 	pdf, err := pdfium.New(ctx, 2)
 	if err != nil {
 		return err

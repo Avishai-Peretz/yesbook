@@ -62,7 +62,7 @@ func (s *Store) Read(_ context.Context, ref storage.Ref, maxBytes int64) ([]byte
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(p)
+	f, err := os.Open(p) //nolint:gosec // path() only accepts local names inside a known bucket
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, storage.ErrNotFound
 	}
@@ -233,8 +233,7 @@ func writeAtomic(p string, write func(io.Writer) error) error {
 	}
 	defer os.Remove(tmp.Name())
 	if err := write(tmp); err != nil {
-		tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return err

@@ -63,7 +63,7 @@ func (s *Store) CreateJob(ctx context.Context, j *document.Job, ev document.Even
 		return insertEvents(ctx, tx, ev)
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("create job: %w", err)
 	}
 	j.Persisted(1)
 	return nil
@@ -95,7 +95,7 @@ func (s *Store) UpdateJob(ctx context.Context, j *document.Job, events ...docume
 		return insertEvents(ctx, tx, events...)
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("update job: %w", err)
 	}
 	j.Persisted(revision)
 	return nil
@@ -220,7 +220,7 @@ func (s *Store) CommitVersion(ctx context.Context, c processing.Commit) error {
 		return insertEvents(ctx, tx, c.Event)
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("commit version: %w", err)
 	}
 	c.Job.Persisted(revision)
 	return nil
@@ -288,7 +288,7 @@ func (s *Store) ProcessPending(ctx context.Context, limit int, publish outbox.Pu
 		return nil
 	})
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("process outbox: %w", err)
 	}
 	return len(published), publishErr
 }

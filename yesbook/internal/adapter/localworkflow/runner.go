@@ -37,7 +37,7 @@ func New(p Processor, log *slog.Logger) *Runner {
 
 // Start returns immediately; processing continues in the background.
 func (r *Runner) Start(_ context.Context, tenantID, jobID string) error {
-	r.wg.Go(func() { r.run(tenantID, jobID) })
+	r.wg.Go(func() { r.run(tenantID, jobID) }) //nolint:contextcheck // runs outlive the request that started them and stop on Close
 	return nil
 }
 

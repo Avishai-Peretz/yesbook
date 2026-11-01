@@ -81,7 +81,7 @@ func blocks(doc *documentaipb.Document, targetPages []int) []document.Block {
 	for i, page := range doc.GetPages() {
 		n := int(page.GetPageNumber())
 		if len(doc.GetPages()) == len(targetPages) {
-			n = targetPages[i]
+			n = targetPages[i] //nolint:gosec // guarded by the length check above
 		}
 		var tables [][2]int64
 		for _, t := range page.GetTables() {

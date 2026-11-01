@@ -72,7 +72,7 @@ func (e *Engine) Inspect(ctx context.Context, pdf []byte) (processing.PDFInfo, e
 func inspectPage(inst gopdfium.Pdfium, doc references.FPDF_DOCUMENT, index int) (processing.PageInfo, error) {
 	page, err := inst.FPDF_LoadPage(&requests.FPDF_LoadPage{Document: doc, Index: index})
 	if err != nil {
-		return processing.PageInfo{}, err
+		return processing.PageInfo{}, fmt.Errorf("load page: %w", err)
 	}
 	defer inst.FPDF_ClosePage(&requests.FPDF_ClosePage{Page: page.Page}) //nolint:errcheck // closing a read-only page cannot lose data
 	ref := requests.Page{ByReference: &page.Page}
@@ -155,7 +155,7 @@ func (e *Engine) withDocument(ctx context.Context, pdf []byte, fn func(gopdfium.
 	if err != nil {
 		return fmt.Errorf("get pdfium instance: %w", err)
 	}
-	defer inst.Close() //nolint:errcheck // returning an instance to the pool has no recoverable failure
+	defer inst.Close()
 
 	doc, err := inst.OpenDocument(&requests.OpenDocument{File: &pdf})
 	switch {

@@ -29,8 +29,9 @@ const (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if err := run(ctx); err != nil {
+	err := run(ctx)
+	stop()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -55,7 +56,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create pubsub client: %w", err)
 	}
-	defer client.Close() //nolint:errcheck // best effort on shutdown
+	defer client.Close()
 	publisher := pubsub.New(client, topic)
 	defer publisher.Stop()
 
