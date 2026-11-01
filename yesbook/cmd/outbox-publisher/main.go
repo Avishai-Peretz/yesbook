@@ -1,7 +1,8 @@
 // Command outbox-publisher relays committed outbox events to Pub/Sub right
 // after each commit (LISTEN/NOTIFY) and on a periodic sweep. Cloud Scheduler
 // also calls POST /sweep every minute, which covers instances that were
-// scaled down. Run it with min-instances=1 and CPU always allocated.
+// scaled down. With min-instances=1 and CPU always allocated events go out
+// right after commit; scaled to zero, delivery lags by up to a minute.
 package main
 
 import (

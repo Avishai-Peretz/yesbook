@@ -27,5 +27,3 @@ images:
   - "${_REPO}/outbox-publisher:${_TAG}"
   - "${_REPO}/worker:${_TAG}"
   - "${_REPO}/migrate:${_TAG}"
-options:
-  machineType: E2_HIGHCPU_8
