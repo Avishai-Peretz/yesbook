@@ -8,13 +8,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/png"
+
 	gopdfium "github.com/klippa-app/go-pdfium"
 	"github.com/klippa-app/go-pdfium/enums"
 	pdfiumerrors "github.com/klippa-app/go-pdfium/errors"
 	"github.com/klippa-app/go-pdfium/references"
 	"github.com/klippa-app/go-pdfium/requests"
 	"github.com/klippa-app/go-pdfium/webassembly"
-	"image/png"
 
 	"github.com/avi-p/yesbook/internal/document"
 	"github.com/avi-p/yesbook/internal/processing"

@@ -61,16 +61,16 @@ type BlockView struct {
 
 // ContentView is published content with signed figure assets.
 type ContentView struct {
-	VersionID       string               `json:"version_id"`
-	JobID           string               `json:"job_id"`
-	Status          document.Status      `json:"status"`
-	Coverage        float64              `json:"coverage"`
-	PipelineVersion string               `json:"pipeline_version"`
-	Pages           int                  `json:"pages"`
-	Blocks          []BlockView          `json:"blocks"`
+	VersionID       string                `json:"version_id"`
+	JobID           string                `json:"job_id"`
+	Status          document.Status       `json:"status"`
+	Coverage        float64               `json:"coverage"`
+	PipelineVersion string                `json:"pipeline_version"`
+	Pages           int                   `json:"pages"`
+	Blocks          []BlockView           `json:"blocks"`
 	Review          []document.ReviewItem `json:"review,omitempty"`
 	Missing         []document.ReviewItem `json:"missing,omitempty"`
-	CreatedAt       time.Time            `json:"created_at"`
+	CreatedAt       time.Time             `json:"created_at"`
 }
 
 type Result struct {

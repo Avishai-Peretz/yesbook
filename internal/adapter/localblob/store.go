@@ -125,7 +125,8 @@ func (s *Store) DeletePrefix(_ context.Context, bucket storage.Bucket, prefix st
 		if prefix != "" && !strings.HasPrefix(name, prefix) {
 			return nil
 		}
-		if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+		// Path comes from WalkDir under root; localblob is a trusted local substitute for GCS.
+		if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) { //nolint:gosec // G122: deletions are scoped to the store root
 			return fmt.Errorf("delete %s/%s: %w", bucket, name, rmErr)
 		}
 		return nil

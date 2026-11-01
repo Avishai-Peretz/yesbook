@@ -37,23 +37,24 @@ func newProxy(documentURL, contentURL *url.URL, users auth.UserAuthenticator, te
 }
 
 func reverseProxy(target *url.URL) http.Handler {
-	p := httputil.NewSingleHostReverseProxy(target)
-	original := p.Director
-	p.Director = func(r *http.Request) {
-		original(r)
-		r.Host = target.Host
-		// Drop client-supplied auth/identity; reinject the tenant backend key.
-		r.Header.Del("Authorization")
-		r.Header.Del("X-Api-Key")
-		r.Header.Del(auth.HeaderIAPEmail)
-		r.Header.Del(auth.HeaderIAPJWT)
-		r.Header.Del(auth.HeaderDevUser)
-		if tok, ok := r.Context().Value(backendAuthKey).(string); ok && tok != "" {
-			r.Header.Set("Authorization", tok)
-		}
-	}
-	p.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
-		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+	p := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+			// Preserve the Host the upstream expects (httptest and Cloud Run).
+			pr.Out.Host = target.Host
+			// Drop client-supplied auth/identity; reinject the tenant backend key.
+			pr.Out.Header.Del("Authorization")
+			pr.Out.Header.Del("X-Api-Key")
+			pr.Out.Header.Del(auth.HeaderIAPEmail)
+			pr.Out.Header.Del(auth.HeaderIAPJWT)
+			pr.Out.Header.Del(auth.HeaderDevUser)
+			if tok, ok := pr.In.Context().Value(backendAuthKey).(string); ok && tok != "" {
+				pr.Out.Header.Set("Authorization", tok)
+			}
+		},
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
+			http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		},
 	}
 	return p
 }

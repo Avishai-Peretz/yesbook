@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "refactor/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: yesbook
+          POSTGRES_PASSWORD: yesbook
+          POSTGRES_DB: yesbook
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U yesbook"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      YESBOOK_TEST_DATABASE_URL: postgres://yesbook:yesbook@localhost:5433/yesbook_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Create test database
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          PGPASSWORD=yesbook psql -h localhost -p 5433 -U yesbook -d yesbook -c "CREATE DATABASE yesbook_test;"
+      - name: Module integrity
+        run: |
+          go mod download
+          go mod verify
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Build and vet
+        run: |
+          go build ./...
+          go vet ./...
+      - name: Test with race detector
+        run: go test -race -shuffle=on -count=1 ./...
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+          args: ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

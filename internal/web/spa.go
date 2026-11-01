@@ -41,9 +41,9 @@ func (s *SPA) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	fi, err := os.Stat(full)
+	fi, err := os.Stat(full) //nolint:gosec // G703: path is constrained by withinRoot above
 	if err == nil && !fi.IsDir() {
-		http.ServeFile(w, r, full)
+		http.ServeFile(w, r, full) //nolint:gosec // G703: path is constrained by withinRoot above
 		return
 	}
 	http.ServeFile(w, r, filepath.Join(s.root, "index.html"))

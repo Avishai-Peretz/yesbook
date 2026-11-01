@@ -27,16 +27,16 @@ type Authenticator interface {
 }
 
 type jobView struct {
-	ID             string                   `json:"id"`
-	Status         document.Status          `json:"status"`
-	FileName       string                   `json:"file_name"`
-	SizeBytes      int64                    `json:"size_bytes"`
-	FileHash       string                   `json:"file_hash,omitempty"`
-	VersionID      string                   `json:"version_id,omitempty"`
-	Reason         string                   `json:"reason,omitempty"`
-	ExtractionMode document.ExtractionMode  `json:"extraction_mode,omitempty"`
-	CreatedAt      time.Time                `json:"created_at"`
-	UpdatedAt      time.Time                `json:"updated_at"`
+	ID             string                  `json:"id"`
+	Status         document.Status         `json:"status"`
+	FileName       string                  `json:"file_name"`
+	SizeBytes      int64                   `json:"size_bytes"`
+	FileHash       string                  `json:"file_hash,omitempty"`
+	VersionID      string                  `json:"version_id,omitempty"`
+	Reason         string                  `json:"reason,omitempty"`
+	ExtractionMode document.ExtractionMode `json:"extraction_mode,omitempty"`
+	CreatedAt      time.Time               `json:"created_at"`
+	UpdatedAt      time.Time               `json:"updated_at"`
 }
 
 func viewJob(j *document.Job) jobView {
@@ -259,7 +259,7 @@ func viewDocument(d operations.Document) jobView {
 		ID: d.ID, Status: d.Status, FileName: d.FileName, SizeBytes: d.SizeBytes,
 		FileHash: d.FileHash, VersionID: d.VersionID, Reason: d.Reason,
 		ExtractionMode: d.ExtractionMode,
-		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
+		CreatedAt:      d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
 }
 

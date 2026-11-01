@@ -22,15 +22,15 @@ vet:
 	go vet ./...
 
 test-unit:
-	go test ./...
+	go test -count=1 ./...
 
 test-race:
-	go test -race ./...
+	go test -race -shuffle=on -count=1 ./...
 
 test: test-race
 
 test-db: db-up
-	YESBOOK_TEST_DATABASE_URL=$(TEST_DATABASE_URL) go test ./internal/adapter/postgres/...
+	YESBOOK_TEST_DATABASE_URL=$(TEST_DATABASE_URL) go test -race -shuffle=on -count=1 ./internal/adapter/postgres/...
 
 lint:
 	golangci-lint run ./...
@@ -54,11 +54,12 @@ web-check: web-lint web-typecheck web-test web-build
 
 check-frontend: web-check
 
-# Full local gate without requiring a C toolchain for -race.
+# Portable local gate: build/vet/unit tests + frontend. Prefer this on Windows
+# hosts without a C toolchain for -race.
 check-all: build vet test-unit web-check
 
-# Prefer check-all on Windows hosts without gcc; keep check for race+lint CI.
-check: build test-race lint
+# Complete gate matching CI: race tests, lint, Postgres integration, frontend.
+check: build vet test-race lint test-db web-check
 
 docker-build:
 	docker build --build-arg CMD=document-api -t yesbook-document-api .

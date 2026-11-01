@@ -78,15 +78,11 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	users, err := newUserAuthenticator(cfg)
-	if err != nil {
-		return err
-	}
 	h, err := web.New(web.Config{
 		DocumentAPI: cfg.DocumentAPI,
 		ContentAPI:  cfg.ContentAPI,
 		WebRoot:     cfg.WebRoot,
-		Users:       users,
+		Users:       newUserAuthenticator(cfg),
 		Tenants:     tenants,
 		Credentials: creds,
 		Log:         log,
@@ -98,13 +94,13 @@ func run(ctx context.Context) error {
 	return platform.Serve(ctx, h, log)
 }
 
-func newUserAuthenticator(cfg config) (auth.UserAuthenticator, error) {
+func newUserAuthenticator(cfg config) auth.UserAuthenticator {
 	switch cfg.AuthMode {
 	case "dev":
 		logWarnDev()
-		return auth.DevUserAuthenticator{FixedEmail: cfg.DevUser}, nil
+		return auth.DevUserAuthenticator{FixedEmail: cfg.DevUser}
 	default:
-		return auth.IAPAuthenticator{RequireJWT: cfg.RequireJWT}, nil
+		return auth.IAPAuthenticator{RequireJWT: cfg.RequireJWT}
 	}
 }
 
