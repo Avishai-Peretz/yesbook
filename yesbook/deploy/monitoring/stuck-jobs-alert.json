@@ -1,0 +1,16 @@
+{
+  "displayName": "Yesbook: stuck processing jobs",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "Jobs without progress for 45 minutes",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/yesbook_stuck_jobs\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [{"alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_PERCENTILE_99"}],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "600s"
+      }
+    }
+  ]
+}

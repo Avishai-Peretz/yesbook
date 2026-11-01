@@ -1,0 +1,24 @@
+{
+  "displayName": "Yesbook: outbox events older than 5 minutes",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "Oldest unpublished outbox event > 300s",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/yesbook_outbox_oldest_age\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [{"alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_PERCENTILE_99"}],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 300,
+        "duration": "0s"
+      }
+    },
+    {
+      "displayName": "No outbox sweep logged for 10 minutes",
+      "conditionAbsent": {
+        "filter": "metric.type=\"logging.googleapis.com/user/yesbook_outbox_oldest_age\" AND resource.type=\"cloud_run_revision\"",
+        "aggregations": [{"alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_COUNT"}],
+        "duration": "600s"
+      }
+    }
+  ]
+}

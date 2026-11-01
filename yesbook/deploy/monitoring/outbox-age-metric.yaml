@@ -1,0 +1,16 @@
+name: yesbook_outbox_oldest_age
+description: Age in seconds of the oldest unpublished outbox event, logged by every sweep.
+filter: >-
+  resource.type="cloud_run_revision"
+  AND resource.labels.service_name="outbox-publisher"
+  AND jsonPayload.message="outbox backlog"
+valueExtractor: EXTRACT(jsonPayload.oldest_age_seconds)
+metricDescriptor:
+  metricKind: DELTA
+  valueType: DISTRIBUTION
+  unit: s
+bucketOptions:
+  exponentialBuckets:
+    numFiniteBuckets: 20
+    growthFactor: 2
+    scale: 1

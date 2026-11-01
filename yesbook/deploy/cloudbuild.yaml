@@ -1,0 +1,31 @@
+# gcloud builds submit --config=deploy/cloudbuild.yaml \
+#   --substitutions=_REPO=REGION-docker.pkg.dev/PROJECT/yesbook,_TAG=v1 .
+steps:
+  - id: document-api
+    name: gcr.io/cloud-builders/docker
+    args: [build, --build-arg, CMD=document-api, -t, "${_REPO}/document-api:${_TAG}", .]
+    waitFor: ["-"]
+  - id: content-api
+    name: gcr.io/cloud-builders/docker
+    args: [build, --build-arg, CMD=content-api, -t, "${_REPO}/content-api:${_TAG}", .]
+    waitFor: ["-"]
+  - id: outbox-publisher
+    name: gcr.io/cloud-builders/docker
+    args: [build, --build-arg, CMD=outbox-publisher, -t, "${_REPO}/outbox-publisher:${_TAG}", .]
+    waitFor: ["-"]
+  - id: worker
+    name: gcr.io/cloud-builders/docker
+    args: [build, --build-arg, CMD=worker, -t, "${_REPO}/worker:${_TAG}", .]
+    waitFor: ["-"]
+  - id: migrate
+    name: gcr.io/cloud-builders/docker
+    args: [build, --build-arg, CMD=migrate, -t, "${_REPO}/migrate:${_TAG}", .]
+    waitFor: ["-"]
+images:
+  - "${_REPO}/document-api:${_TAG}"
+  - "${_REPO}/content-api:${_TAG}"
+  - "${_REPO}/outbox-publisher:${_TAG}"
+  - "${_REPO}/worker:${_TAG}"
+  - "${_REPO}/migrate:${_TAG}"
+options:
+  machineType: E2_HIGHCPU_8
