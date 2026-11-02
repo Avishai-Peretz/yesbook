@@ -17,18 +17,23 @@ const response = `{
   "errors": [],
   "document": {"json_content": {
     "body": {"children": [{"$ref": "#/texts/0"}, {"$ref": "#/groups/0"}, {"$ref": "#/tables/0"}, {"$ref": "#/pictures/0"}]},
-    "groups": [{"children": [{"$ref": "#/texts/1"}, {"$ref": "#/texts/2"}]}],
+    "groups": [{"children": [{"$ref": "#/texts/1"}, {"$ref": "#/texts/2"}, {"$ref": "#/texts/3"}]}],
     "texts": [
       {"label": "section_header", "text": "פרק 1", "prov": [{"page_no": 3, "bbox": {"l": 10, "t": 700, "r": 200, "b": 680}}]},
-      {"label": "text", "text": "שלום עולם", "prov": [{"page_no": 3}]},
+      {"label": "text", "text": "שלום עולם", "prov": [{"page_no": 3, "bbox": {"l": 10, "t": 660, "r": 180, "b": 640}}]},
+      {"label": "list_item", "text": "• נקודה ראשונה", "prov": [{"page_no": 3, "bbox": {"l": 20, "t": 620, "r": 200, "b": 600}}]},
       {"label": "page_footer", "text": "3", "prov": [{"page_no": 3}]}
     ],
-    "tables": [{"prov": [{"page_no": 3}], "data": {"num_rows": 2, "num_cols": 2, "table_cells": [
+    "tables": [{"prov": [{"page_no": 3, "bbox": {"l": 10, "t": 500, "r": 300, "b": 400}}], "data": {"num_rows": 2, "num_cols": 2, "table_cells": [
       {"text": "שם", "start_row_offset_idx": 0, "start_col_offset_idx": 0},
       {"text": "ציון", "start_row_offset_idx": 0, "start_col_offset_idx": 1},
       {"text": "דנה", "start_row_offset_idx": 1, "start_col_offset_idx": 0},
       {"text": "90", "start_row_offset_idx": 1, "start_col_offset_idx": 1}
-    ]}}]
+    ]}}],
+    "pictures": [{"prov": [{"page_no": 3, "bbox": {"l": 40, "t": 350, "r": 140, "b": 250}}], "captions": [], "image": {
+      "mimetype": "image/png",
+      "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    }}]
   }}
 }`
 
@@ -58,17 +63,26 @@ func TestExtract(t *testing.T) {
 	if !slices.Equal(form["page_range"], []string{"3", "3"}) || form["force_ocr"][0] != "true" || !slices.Contains(form["ocr_lang"], "he") {
 		t.Errorf("form = %v", form)
 	}
-	if len(ex.Blocks) != 3 {
-		t.Fatalf("blocks = %+v, want heading, paragraph and table", ex.Blocks)
+	if len(ex.Blocks) != 5 {
+		t.Fatalf("blocks = %+v, want heading, paragraph, list item, table and figure", ex.Blocks)
 	}
 	if b := ex.Blocks[0]; b.Kind != document.BlockHeading || b.Page != 3 || b.BBox == nil || b.BBox.Left != 10 {
 		t.Errorf("heading = %+v", b)
 	}
-	if b := ex.Blocks[1]; b.Kind != document.BlockParagraph || b.Text != "שלום עולם" {
+	if b := ex.Blocks[1]; b.Kind != document.BlockParagraph || b.Text != "שלום עולם" || b.BBox == nil {
 		t.Errorf("paragraph = %+v", b)
 	}
-	if b := ex.Blocks[2]; b.Kind != document.BlockTable || b.Rows[1][1] != "90" {
+	if b := ex.Blocks[2]; b.Kind != document.BlockParagraph || b.Text != "• נקודה ראשונה" || b.BBox == nil {
+		t.Errorf("list item = %+v", b)
+	}
+	if b := ex.Blocks[3]; b.Kind != document.BlockTable || b.Rows[1][1] != "90" || b.BBox == nil {
 		t.Errorf("table = %+v", b)
+	}
+	if b := ex.Blocks[4]; b.Kind != document.BlockFigure || len(b.AssetData) == 0 || b.Asset == nil || b.Asset.ContentType != "image/png" {
+		t.Errorf("figure = %+v", b)
+	}
+	if form["image_export_mode"][0] != "embedded" {
+		t.Errorf("image_export_mode = %v", form["image_export_mode"])
 	}
 }
 

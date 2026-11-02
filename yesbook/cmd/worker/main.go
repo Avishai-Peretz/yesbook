@@ -40,49 +40,35 @@ func run(ctx context.Context, args []string) error {
 	cmd, tenantID, jobID := args[0], args[1], args[2]
 	log := platform.NewLogger("worker").With("tenant_id", tenantID, "job_id", jobID,
 		"execution", platform.Env("CLOUD_RUN_EXECUTION", ""))
-
 	var req platform.RequireEnv
 	dbURL := req.Get("YESBOOK_DATABASE_URL")
 	if err := req.Err(); err != nil {
 		return err
 	}
-	var closers app.Closers
-	defer closers.Close()
-	pool, err := postgres.Connect(ctx, dbURL)
+
+	rt, err := app.OpenRuntime(ctx, dbURL)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
-	blobs, err := app.GCSBlobs(ctx, &closers)
-	if err != nil {
-		return err
-	}
+	defer rt.Close()
 	pdf, err := pdfium.New(ctx, 1)
 	if err != nil {
 		return err
 	}
-	closers.Add(pdf)
-	chains, err := extraction.Chains(ctx, pdf, &closers, log)
+	rt.Add(pdf)
+	store := postgres.New(rt.Pool)
+	p, err := extraction.BuildPipeline(ctx, pdf, rt, processing.Dependencies{
+		Jobs: store, Versions: store, Attempts: store, Progress: store, Objects: rt.Blobs, Logger: log,
+	})
 	if err != nil {
 		return err
 	}
-	cfg, err := extraction.PipelineConfig()
-	if err != nil {
-		return err
-	}
-	store := postgres.New(pool)
-	p, err := processing.NewPipeline(processing.Dependencies{
-		Jobs: store, Versions: store, Attempts: store, Objects: blobs, Inspector: pdf,
-		Router: processing.NewRouter(chains), Logger: log,
-	}, cfg)
-	if err != nil {
-		return err
-	}
-
 	if cmd == "block" {
 		return p.Block(ctx, tenantID, jobID, args[3])
 	}
-	status, err := p.Process(ctx, tenantID, jobID, args[3])
+	status, err := p.Process(processing.WithRunIdentity(ctx, processing.RunIdentity{
+		RunID: platform.Env("CLOUD_RUN_EXECUTION", ""),
+	}), tenantID, jobID, args[3])
 	if err != nil {
 		return err
 	}

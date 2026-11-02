@@ -19,6 +19,7 @@ import (
 
 	"github.com/avi-p/yesbook/internal/adapter/postgres"
 	"github.com/avi-p/yesbook/internal/adapter/pubsub"
+	"github.com/avi-p/yesbook/internal/app"
 	"github.com/avi-p/yesbook/internal/outbox"
 	"github.com/avi-p/yesbook/internal/platform"
 )
@@ -27,6 +28,25 @@ const (
 	sweepInterval = time.Minute
 	stuckAfter    = 45 * time.Minute
 )
+
+type config struct {
+	DatabaseURL string
+	Project     string
+	Topic       string
+}
+
+func loadConfig() (config, error) {
+	var req platform.RequireEnv
+	cfg := config{
+		DatabaseURL: req.Get("YESBOOK_DATABASE_URL"),
+		Project:     req.Get("YESBOOK_PROJECT"),
+		Topic:       req.Get("YESBOOK_TOPIC"),
+	}
+	if err := req.Err(); err != nil {
+		return config{}, err
+	}
+	return cfg, nil
+}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -40,30 +60,34 @@ func main() {
 
 func run(ctx context.Context) error {
 	log := platform.NewLogger("outbox-publisher")
-	var req platform.RequireEnv
-	dbURL := req.Get("YESBOOK_DATABASE_URL")
-	project := req.Get("YESBOOK_PROJECT")
-	topic := req.Get("YESBOOK_TOPIC")
-	if err := req.Err(); err != nil {
+	cfg, err := loadConfig()
+	if err != nil {
 		return err
 	}
 
-	pool, err := postgres.Connect(ctx, dbURL)
+	pool, err := postgres.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	client, err := gpubsub.NewClient(ctx, project)
+	client, err := gpubsub.NewClient(ctx, cfg.Project)
 	if err != nil {
 		return fmt.Errorf("create pubsub client: %w", err)
 	}
 	defer client.Close()
-	publisher := pubsub.New(client, topic)
+	publisher := pubsub.New(client, cfg.Topic)
 	defer publisher.Stop()
 
+	runCtx, cancel := context.WithCancel(ctx)
 	store := postgres.New(pool)
 	relay := outbox.NewRelay(store, publisher, log)
-	go relay.Run(ctx, store.Listen(ctx, log), sweepInterval)
+	var tasks app.Group
+	tasks.Go(func() { relay.Run(runCtx, store.Listen(runCtx, log), sweepInterval) })
+	defer func() {
+		cancel()
+		tasks.Wait()
+		store.Wait()
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
@@ -76,7 +100,7 @@ func run(ctx context.Context) error {
 		reportStuckJobs(r.Context(), store, log)
 		w.WriteHeader(http.StatusNoContent)
 	})
-	return platform.Serve(ctx, mux, log)
+	return platform.Serve(runCtx, mux, log)
 }
 
 // reportStuckJobs logs the count that the stuck-jobs alert is based on.

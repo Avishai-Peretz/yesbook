@@ -8,16 +8,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image/png"
-	"regexp"
-	"strings"
-
 	gopdfium "github.com/klippa-app/go-pdfium"
 	"github.com/klippa-app/go-pdfium/enums"
 	pdfiumerrors "github.com/klippa-app/go-pdfium/errors"
 	"github.com/klippa-app/go-pdfium/references"
 	"github.com/klippa-app/go-pdfium/requests"
 	"github.com/klippa-app/go-pdfium/webassembly"
+	"image/png"
 
 	"github.com/avi-p/yesbook/internal/document"
 	"github.com/avi-p/yesbook/internal/processing"
@@ -102,26 +99,25 @@ func inspectPage(inst gopdfium.Pdfium, doc references.FPDF_DOCUMENT, index int) 
 	return processing.PageInfo{Number: index + 1, Text: text.Text, Images: images}, nil
 }
 
-var paragraphBreak = regexp.MustCompile(`(\r?\n){2,}`)
-
-// Extract returns the embedded text of the target's pages, one paragraph
-// block per blank-line separated chunk.
+// Extract returns structured blocks for the target's pages: headings and
+// paragraphs with PDF-point bounding boxes, derived from PDFium text rects
+// and font sizes so rebuild/context keep layout.
 func (e *Engine) Extract(ctx context.Context, req processing.ExtractRequest) (document.Extraction, error) {
 	var ex document.Extraction
 	err := e.withDocument(ctx, req.PDF, func(inst gopdfium.Pdfium, doc references.FPDF_DOCUMENT) error {
 		for _, n := range req.Target.Pages {
-			text, err := inst.GetPageText(&requests.GetPageText{
-				Page: requests.Page{ByIndex: &requests.PageByIndex{Document: doc, Index: n - 1}},
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			structured, err := inst.GetPageTextStructured(&requests.GetPageTextStructured{
+				Page:                   requests.Page{ByIndex: &requests.PageByIndex{Document: doc, Index: n - 1}},
+				Mode:                   requests.GetPageTextStructuredModeRects,
+				CollectFontInformation: true,
 			})
 			if err != nil {
 				return fmt.Errorf("page %d: %w", n, err)
 			}
-			for _, para := range paragraphBreak.Split(text.Text, -1) {
-				para = strings.TrimSpace(strings.ReplaceAll(para, "\r\n", "\n"))
-				if para != "" {
-					ex.Blocks = append(ex.Blocks, document.Block{Kind: document.BlockParagraph, Text: para, Page: n})
-				}
-			}
+			ex.Blocks = append(ex.Blocks, blocksFromRects(n, structured.Rects)...)
 		}
 		return nil
 	})

@@ -17,15 +17,22 @@ import (
 // buildPDF writes a minimal valid PDF with one page per text, using the
 // Helvetica base font. An empty text gives a blank page.
 func buildPDF(texts ...string) []byte {
-	var objs []string
-	kids := make([]string, len(texts))
+	streams := make([]string, len(texts))
 	for i, text := range texts {
+		if text != "" {
+			streams[i] = fmt.Sprintf("BT /F1 18 Tf 72 720 Td (%s) Tj ET", text)
+		}
+	}
+	return buildPDFStreams(streams...)
+}
+
+// buildPDFStreams writes one page per content stream.
+func buildPDFStreams(streams ...string) []byte {
+	var objs []string
+	kids := make([]string, len(streams))
+	for i, stream := range streams {
 		pageID, contentID := 4+2*i, 5+2*i
 		kids[i] = fmt.Sprintf("%d 0 R", pageID)
-		stream := ""
-		if text != "" {
-			stream = fmt.Sprintf("BT /F1 18 Tf 72 720 Td (%s) Tj ET", text)
-		}
 		objs = append(objs,
 			fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>", contentID),
 			fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(stream), stream),
@@ -33,7 +40,7 @@ func buildPDF(texts ...string) []byte {
 	}
 	objs = append([]string{
 		"<< /Type /Catalog /Pages 2 0 R >>",
-		fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), len(texts)),
+		fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), len(streams)),
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
 	}, objs...)
 
@@ -86,6 +93,9 @@ func TestInspectExtractRender(t *testing.T) {
 	if len(ex.Blocks) != 1 || ex.Blocks[0].Page != 1 || !strings.Contains(ex.Blocks[0].Text, "lesson one") {
 		t.Errorf("blocks = %+v", ex.Blocks)
 	}
+	if ex.Blocks[0].BBox == nil {
+		t.Errorf("block missing bbox: %+v", ex.Blocks[0])
+	}
 
 	img, err := e.RenderPNG(ctx, pdf, 1, 72)
 	if err != nil {
@@ -104,5 +114,32 @@ func TestInspectRejectsGarbage(t *testing.T) {
 	_, err := newEngine(t).Inspect(context.Background(), []byte("%PDF-1.7 this is not really a pdf"))
 	if !errors.Is(err, processing.ErrUnreadablePDF) {
 		t.Errorf("err = %v, want ErrUnreadablePDF", err)
+	}
+}
+
+func TestExtractKeepsLayoutAndSplitsBlocks(t *testing.T) {
+	e := newEngine(t)
+	pdf := buildPDFStreams(
+		"BT /F1 24 Tf 72 740 Td (Chapter One) Tj /F1 12 Tf 0 -40 Td (First paragraph body.) Tj 0 -28 Td (Second paragraph body.) Tj ET",
+	)
+	ex, err := e.Extract(context.Background(), processing.ExtractRequest{
+		PDF: pdf, Target: document.Target{ID: "p0001", Pages: []int{1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ex.Blocks) < 2 {
+		t.Fatalf("blocks = %+v, want multiple structured blocks", ex.Blocks)
+	}
+	var texts []string
+	for _, b := range ex.Blocks {
+		if b.Page != 1 || b.BBox == nil || strings.TrimSpace(b.Text) == "" {
+			t.Errorf("block missing page/bbox/text: %+v", b)
+		}
+		texts = append(texts, b.Text)
+	}
+	joined := strings.Join(texts, " ")
+	if !strings.Contains(joined, "Chapter One") || !strings.Contains(joined, "First paragraph") {
+		t.Errorf("extracted text = %q, want title and body", joined)
 	}
 }

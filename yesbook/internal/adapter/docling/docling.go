@@ -5,7 +5,9 @@ package docling
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -57,7 +59,7 @@ func (e *Extractor) Extract(ctx context.Context, req processing.ExtractRequest) 
 		return document.Extraction{}, fmt.Errorf("call docling: %w", err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	raw, err := readLimited(resp.Body, maxResponseBytes)
 	if err != nil {
 		return document.Extraction{}, fmt.Errorf("read docling response: %w", err)
 	}
@@ -75,7 +77,21 @@ func (e *Extractor) Extract(ctx context.Context, req processing.ExtractRequest) 
 	return document.Extraction{Blocks: out.Document.JSONContent.blocks(req.Target)}, nil
 }
 
+func readLimited(r io.Reader, maxBytes int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, errors.New("response too large")
+	}
+	return data, nil
+}
+
 func form(req processing.ExtractRequest) (io.Reader, string, error) {
+	if len(req.Target.Pages) == 0 {
+		return nil, "", errors.New("docling target has no pages")
+	}
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	part, err := w.CreateFormFile("files", "document.pdf")
@@ -91,7 +107,7 @@ func form(req processing.ExtractRequest) (io.Reader, string, error) {
 		{"do_ocr", "true"},
 		{"force_ocr", strconv.FormatBool(t.Content != document.ContentText)},
 		{"table_mode", "accurate"},
-		{"image_export_mode", "placeholder"},
+		{"image_export_mode", "embedded"},
 		{"page_range", strconv.Itoa(t.Pages[0])},
 		{"page_range", strconv.Itoa(t.Pages[len(t.Pages)-1])},
 	}
@@ -163,12 +179,22 @@ type group struct {
 	Children []ref `json:"children"`
 }
 
+type pictureItem struct {
+	Prov     []prov `json:"prov"`
+	Captions []ref  `json:"captions"`
+	Image    *struct {
+		Mimetype string `json:"mimetype"`
+		URI      string `json:"uri"`
+	} `json:"image"`
+}
+
 // doclingDocument is the subset of the DoclingDocument JSON format used here.
 type doclingDocument struct {
-	Body   group       `json:"body"`
-	Groups []group     `json:"groups"`
-	Texts  []textItem  `json:"texts"`
-	Tables []tableItem `json:"tables"`
+	Body     group         `json:"body"`
+	Groups   []group       `json:"groups"`
+	Texts    []textItem    `json:"texts"`
+	Tables   []tableItem   `json:"tables"`
+	Pictures []pictureItem `json:"pictures"`
 }
 
 // blocks walks the body tree in reading order.
@@ -193,6 +219,10 @@ func (d doclingDocument) blocks(t document.Target) []document.Block {
 				if b, ok := tableBlock(d.Tables[idx], t); ok {
 					out = append(out, b)
 				}
+			case kind == "pictures" && idx < len(d.Pictures):
+				if b, ok := pictureBlock(d.Pictures[idx], d.Texts, t); ok {
+					out = append(out, b)
+				}
 			case kind == "groups" && idx < len(d.Groups):
 				walk(d.Groups[idx].Children, depth+1)
 			}
@@ -200,6 +230,62 @@ func (d doclingDocument) blocks(t document.Target) []document.Block {
 	}
 	walk(d.Body.Children, 0)
 	return out
+}
+
+func pictureBlock(it pictureItem, texts []textItem, t document.Target) (document.Block, bool) {
+	caption := ""
+	for _, c := range it.Captions {
+		kind, idx, ok := parseRef(c.Ref)
+		if !ok || kind != "texts" || idx >= len(texts) {
+			continue
+		}
+		caption = strings.TrimSpace(texts[idx].Text)
+		if caption != "" {
+			break
+		}
+	}
+	b := document.Block{Kind: document.BlockFigure, Text: caption}
+	anchor(&b, it.Prov, t)
+	if it.Image != nil {
+		if data, contentType, ok := decodeEmbeddedImage(it.Image.URI, it.Image.Mimetype); ok {
+			b.AssetData = data
+			b.Asset = &document.AssetRef{ContentType: contentType}
+		}
+	}
+	if b.Text == "" && len(b.AssetData) == 0 {
+		return document.Block{}, false
+	}
+	return b, true
+}
+
+func decodeEmbeddedImage(uri, mimetype string) ([]byte, string, bool) {
+	contentType := strings.TrimSpace(mimetype)
+	raw := strings.TrimSpace(uri)
+	if raw == "" {
+		return nil, "", false
+	}
+	if strings.HasPrefix(raw, "data:") {
+		header, payload, ok := strings.Cut(raw, ",")
+		if !ok {
+			return nil, "", false
+		}
+		if contentType == "" {
+			meta := strings.TrimPrefix(header, "data:")
+			contentType, _, _ = strings.Cut(meta, ";")
+		}
+		raw = payload
+	}
+	if contentType == "" {
+		contentType = "image/png"
+	}
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		data, err = base64.RawStdEncoding.DecodeString(raw)
+	}
+	if err != nil || len(data) == 0 {
+		return nil, "", false
+	}
+	return data, contentType, true
 }
 
 func parseRef(s string) (string, int, bool) {
@@ -225,6 +311,9 @@ func textBlock(it textItem, t document.Target) (document.Block, bool) {
 		kind = document.BlockHeading
 	case "formula":
 		kind = document.BlockFormula
+	case "list_item":
+		// Preserve marker text as a paragraph; document.Block has no list kind.
+		kind = document.BlockParagraph
 	case "page_header", "page_footer":
 		return document.Block{}, false
 	}

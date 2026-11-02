@@ -73,20 +73,20 @@ func (r *Relay) publishBatch(ctx context.Context, events []document.Event) ([]st
 // Sweep drains the outbox and logs the remaining backlog. Alert on the
 // oldest_age_seconds attribute of the "outbox backlog" log entry.
 func (r *Relay) Sweep(ctx context.Context) error {
-	n, err := r.Drain(ctx)
+	n, drainErr := r.Drain(ctx)
 	if n > 0 {
 		r.log.InfoContext(ctx, "outbox events published", "count", n)
 	}
-	b, berr := r.store.Backlog(ctx)
-	if berr != nil {
-		return fmt.Errorf("read outbox backlog: %w", berr)
+	b, backlogErr := r.store.Backlog(ctx)
+	if backlogErr != nil {
+		return fmt.Errorf("read outbox backlog: %w", backlogErr)
 	}
 	age := 0.0
 	if !b.Oldest.IsZero() {
 		age = r.now().Sub(b.Oldest).Seconds()
 	}
 	r.log.InfoContext(ctx, "outbox backlog", "pending", b.Pending, "oldest_age_seconds", age)
-	return err
+	return drainErr
 }
 
 // Run sweeps whenever wake fires (a commit notification) and every interval,

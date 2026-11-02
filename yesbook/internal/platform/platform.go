@@ -87,7 +87,10 @@ func EnvInt64(key string, fallback int64) (int64, error) {
 // Serve listens on 0.0.0.0:$PORT (8080 by default) until ctx is cancelled,
 // then drains in-flight requests within Cloud Run's 10 second grace period.
 func Serve(ctx context.Context, h http.Handler, log *slog.Logger) error {
-	addr := net.JoinHostPort("0.0.0.0", Env("PORT", "8080"))
+	return serve(ctx, net.JoinHostPort("0.0.0.0", Env("PORT", "8080")), h, log)
+}
+
+func serve(ctx context.Context, addr string, h http.Handler, log *slog.Logger) error {
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           h,
