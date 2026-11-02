@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/avi-p/yesbook/internal/adapter/postgres"
+	"github.com/avi-p/yesbook/internal/adapter/storecontract"
 	"github.com/avi-p/yesbook/internal/document"
 	"github.com/avi-p/yesbook/internal/processing"
 )
@@ -32,7 +33,7 @@ func newStore(t *testing.T) *postgres.Store {
 	}
 	t.Cleanup(pool.Close)
 	if _, err := pool.Exec(context.Background(),
-		`TRUNCATE outbox, quality_results, cache_keys, attempts, versions, jobs`); err != nil {
+		`TRUNCATE processing_events, outbox, quality_results, cache_keys, attempts, versions, jobs`); err != nil {
 		t.Fatal(err)
 	}
 	return postgres.New(pool)
@@ -176,7 +177,10 @@ func TestOutboxProcessPending(t *testing.T) {
 func TestListenWakesOnCommit(t *testing.T) {
 	s := newStore(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	defer func() {
+		cancel()
+		s.Wait()
+	}()
 	wake := s.Listen(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	time.Sleep(200 * time.Millisecond) // let LISTEN register
 
@@ -186,4 +190,8 @@ func TestListenWakesOnCommit(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no notification after commit")
 	}
+}
+
+func TestRepositoryContract(t *testing.T) {
+	storecontract.Run(t, func(t *testing.T) storecontract.Store { return newStore(t) })
 }

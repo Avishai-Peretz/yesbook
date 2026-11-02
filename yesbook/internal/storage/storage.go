@@ -3,6 +3,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -31,6 +32,13 @@ var (
 type Ref struct {
 	Bucket Bucket
 	Name   string
+}
+
+// Deleter removes objects. Missing objects are not an error.
+type Deleter interface {
+	Delete(ctx context.Context, ref Ref) error
+	// DeletePrefix removes every object whose name starts with prefix in bucket.
+	DeletePrefix(ctx context.Context, bucket Bucket, prefix string) error
 }
 
 func (r Ref) String() string {

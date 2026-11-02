@@ -14,7 +14,7 @@ import (
 
 // Migrate applies every pending migration. A database already at the latest
 // version is not an error.
-func Migrate(url string) error {
+func Migrate(url string) (err error) {
 	src, err := iofs.New(migrations.FS, ".")
 	if err != nil {
 		return fmt.Errorf("load migrations: %w", err)
@@ -23,9 +23,13 @@ func Migrate(url string) error {
 	if err != nil {
 		return fmt.Errorf("open migrator: %w", err)
 	}
-	defer m.Close()
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("apply migrations: %w", err)
+	defer func() {
+		srcErr, dbErr := m.Close()
+		err = errors.Join(err, srcErr, dbErr)
+	}()
+	if upErr := m.Up(); upErr != nil && !errors.Is(upErr, migrate.ErrNoChange) {
+		err = fmt.Errorf("apply migrations: %w", upErr)
+		return err
 	}
 	return nil
 }

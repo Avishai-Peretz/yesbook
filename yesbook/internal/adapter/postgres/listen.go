@@ -12,7 +12,9 @@ import (
 // covers every event committed before it is handled.
 func (s *Store) Listen(ctx context.Context, log *slog.Logger) <-chan struct{} {
 	wake := make(chan struct{}, 1)
+	s.listenWG.Add(1)
 	go func() {
+		defer s.listenWG.Done()
 		defer close(wake)
 		backoff := time.Second
 		for {

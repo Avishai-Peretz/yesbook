@@ -12,6 +12,7 @@ import (
 	"time"
 
 	cloudstorage "cloud.google.com/go/storage"
+	"google.golang.org/api/iterator"
 
 	"github.com/avi-p/yesbook/internal/storage"
 )
@@ -98,6 +99,37 @@ func (s *Store) Write(ctx context.Context, ref storage.Ref, contentType string, 
 		return fmt.Errorf("write %s: %w", ref, err)
 	}
 	return nil
+}
+
+func (s *Store) Delete(ctx context.Context, ref storage.Ref) error {
+	obj, err := s.object(ref)
+	if err != nil {
+		return err
+	}
+	if err := obj.Delete(ctx); err != nil && !errors.Is(err, cloudstorage.ErrObjectNotExist) {
+		return fmt.Errorf("delete %s: %w", ref, err)
+	}
+	return nil
+}
+
+func (s *Store) DeletePrefix(ctx context.Context, bucket storage.Bucket, prefix string) error {
+	name, ok := s.buckets[bucket]
+	if !ok {
+		return fmt.Errorf("%w: %s", storage.ErrInvalidObject, bucket)
+	}
+	it := s.client.Bucket(name).Objects(ctx, &cloudstorage.Query{Prefix: prefix})
+	for {
+		attrs, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("list %s/%s: %w", bucket, prefix, err)
+		}
+		if err := s.client.Bucket(name).Object(attrs.Name).Delete(ctx); err != nil && !errors.Is(err, cloudstorage.ErrObjectNotExist) {
+			return fmt.Errorf("delete %s/%s: %w", bucket, attrs.Name, err)
+		}
+	}
 }
 
 // SignedUploadURL only signs uploads into the staging bucket, and Cloud

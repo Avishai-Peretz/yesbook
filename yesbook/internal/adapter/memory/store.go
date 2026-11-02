@@ -16,6 +16,7 @@ import (
 type outboxRow struct {
 	event     document.Event
 	published bool
+	claimed   bool
 }
 
 type Store struct {
@@ -25,8 +26,11 @@ type Store struct {
 	cache    map[string]string
 	quality  map[string][]document.QualityResult
 	attempts []document.Attempt
+	progress []processing.ProgressEvent
 	outbox   []outboxRow
 }
+
+var _ processing.ProgressSink = (*Store)(nil)
 
 func New() *Store {
 	return &Store{
@@ -140,27 +144,88 @@ func (s *Store) Spend(_ context.Context, jobID string) (document.Spend, error) {
 	return sp, nil
 }
 
-func (s *Store) ProcessPending(ctx context.Context, limit int, publish outbox.PublishFunc) (int, error) {
+func (s *Store) RecordProgress(_ context.Context, event processing.ProgressEvent) error {
+	if err := event.Validate(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var idx []int
-	var batch []document.Event
-	for i, row := range s.outbox {
-		if !row.published && len(batch) < limit {
-			idx = append(idx, i)
-			batch = append(batch, row.event)
+	job, ok := s.jobs[event.JobID]
+	if !ok || job.TenantID != event.TenantID {
+		return document.ErrNotFound
+	}
+	event.Sequence = int64(len(s.progress) + 1)
+	event.OccurredAt = event.OccurredAt.UTC()
+	s.progress = append(s.progress, cloneProgressEvent(event))
+	return nil
+}
+
+func (s *Store) ProgressEvents(_ context.Context, tenantID, jobID string) ([]processing.ProgressEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job, ok := s.jobs[jobID]
+	if !ok || job.TenantID != tenantID {
+		return nil, document.ErrNotFound
+	}
+	events := make([]processing.ProgressEvent, 0)
+	for _, event := range s.progress {
+		if event.JobID == jobID && event.TenantID == tenantID {
+			events = append(events, cloneProgressEvent(event))
 		}
 	}
-	if len(batch) == 0 {
+	return events, nil
+}
+
+func cloneProgressEvent(event processing.ProgressEvent) processing.ProgressEvent {
+	if event.Progress != nil {
+		progress := *event.Progress
+		event.Progress = &progress
+	}
+	return event
+}
+
+func (s *Store) ProcessPending(ctx context.Context, limit int, publish outbox.PublishFunc) (int, error) {
+	events, idx := s.claimPending(limit)
+	if len(events) == 0 {
 		return 0, nil
 	}
-	published, err := publish(ctx, batch)
+	finished := false
+	defer func() {
+		if !finished {
+			s.finishClaim(idx, nil)
+		}
+	}()
+	published, err := publish(ctx, events)
+	s.finishClaim(idx, published)
+	finished = true
+	return len(published), err
+}
+
+func (s *Store) claimPending(limit int) ([]document.Event, []int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	events := make([]document.Event, 0, limit)
+	idx := make([]int, 0, limit)
+	for i, row := range s.outbox {
+		if row.published || row.claimed || len(events) >= limit {
+			continue
+		}
+		s.outbox[i].claimed = true
+		idx = append(idx, i)
+		events = append(events, row.event)
+	}
+	return events, idx
+}
+
+func (s *Store) finishClaim(idx []int, published []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, i := range idx {
 		if slices.Contains(published, s.outbox[i].event.ID) {
 			s.outbox[i].published = true
 		}
+		s.outbox[i].claimed = false
 	}
-	return len(published), err
 }
 
 func (s *Store) Backlog(context.Context) (outbox.Backlog, error) {
