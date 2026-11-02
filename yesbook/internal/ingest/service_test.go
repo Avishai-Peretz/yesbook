@@ -118,7 +118,7 @@ func TestSubmit(t *testing.T) {
 				u.sizes[u.signed[0].String()] = tt.uploaded
 			}
 
-			_, err = svc.Submit(ctx, "tenant-a", reg.Job.ID())
+			_, err = svc.Submit(ctx, "tenant-a", reg.Job.ID(), ingest.SubmitRequest{})
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
 			}
@@ -147,7 +147,7 @@ func TestSubmitTwiceRestartsWorkflow(t *testing.T) {
 	u.sizes[u.signed[0].String()] = lesson.SizeBytes
 
 	for range 2 {
-		if _, err := svc.Submit(ctx, "tenant-a", reg.Job.ID()); err != nil {
+		if _, err := svc.Submit(ctx, "tenant-a", reg.Job.ID(), ingest.SubmitRequest{}); err != nil {
 			t.Fatal(err)
 		}
 	}

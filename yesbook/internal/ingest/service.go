@@ -38,12 +38,13 @@ var (
 )
 
 type Service struct {
-	jobs      JobRepository
-	uploads   Uploads
-	workflows WorkflowStarter
-	uploadTTL time.Duration
-	now       func() time.Time
-	newID     func() string
+	jobs       JobRepository
+	uploads    Uploads
+	workflows  WorkflowStarter
+	uploadTTL  time.Duration
+	now        func() time.Time
+	newID      func() string
+	configured map[string]bool
 }
 
 type Option func(*Service)
@@ -51,6 +52,11 @@ type Option func(*Service)
 func WithUploadTTL(d time.Duration) Option   { return func(s *Service) { s.uploadTTL = d } }
 func WithClock(now func() time.Time) Option  { return func(s *Service) { s.now = now } }
 func WithIDGenerator(f func() string) Option { return func(s *Service) { s.newID = f } }
+
+// WithConfiguredModes limits pinned extraction_mode values to the given tool names.
+func WithConfiguredModes(configured map[string]bool) Option {
+	return func(s *Service) { s.configured = configured }
+}
 
 func NewService(jobs JobRepository, uploads Uploads, workflows WorkflowStarter, opts ...Option) *Service {
 	s := &Service{
@@ -60,6 +66,9 @@ func NewService(jobs JobRepository, uploads Uploads, workflows WorkflowStarter, 
 		uploadTTL: 15 * time.Minute,
 		now:       time.Now,
 		newID:     document.NewID,
+		configured: map[string]bool{
+			string(document.ModePDFium): true,
+		},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -68,9 +77,10 @@ func NewService(jobs JobRepository, uploads Uploads, workflows WorkflowStarter, 
 }
 
 type RegisterRequest struct {
-	FileName    string
-	ContentType string
-	SizeBytes   int64
+	FileName       string
+	ContentType    string
+	SizeBytes      int64
+	ExtractionMode document.ExtractionMode
 }
 
 type Registration struct {
@@ -78,16 +88,34 @@ type Registration struct {
 	Upload storage.SignedURL
 }
 
+func (s *Service) validateMode(mode document.ExtractionMode) error {
+	parsed, err := document.ParseExtractionMode(string(mode))
+	if err != nil {
+		return err
+	}
+	if !parsed.Pinned() {
+		return nil
+	}
+	if s.configured == nil || !s.configured[parsed.ExtractorName()] {
+		return fmt.Errorf("%w: extraction_mode %q is not configured", document.ErrInvalid, parsed)
+	}
+	return nil
+}
+
 // Register creates a job and returns a URL the client uploads the PDF to.
 // The URL is signed before the job is stored so a signing failure leaves no
 // orphaned job.
 func (s *Service) Register(ctx context.Context, tenantID string, req RegisterRequest) (Registration, error) {
+	if err := s.validateMode(req.ExtractionMode); err != nil {
+		return Registration{}, err
+	}
 	now := s.now().UTC()
 	j, err := document.NewJob(s.newID(), document.NewJobParams{
-		TenantID:    tenantID,
-		FileName:    req.FileName,
-		ContentType: req.ContentType,
-		SizeBytes:   req.SizeBytes,
+		TenantID:       tenantID,
+		FileName:       req.FileName,
+		ContentType:    req.ContentType,
+		SizeBytes:      req.SizeBytes,
+		ExtractionMode: req.ExtractionMode,
 	}, now)
 	if err != nil {
 		return Registration{}, err
@@ -106,12 +134,29 @@ func (s *Service) Get(ctx context.Context, tenantID, jobID string) (*document.Jo
 	return s.jobs.GetJob(ctx, tenantID, jobID)
 }
 
+type SubmitRequest struct {
+	ExtractionMode document.ExtractionMode
+}
+
 // Submit confirms the upload and starts processing. Submitting a job that is
 // already queued starts the workflow again, so clients can retry a failed start.
-func (s *Service) Submit(ctx context.Context, tenantID, jobID string) (*document.Job, error) {
+// Optional ExtractionMode updates the job before processing begins.
+func (s *Service) Submit(ctx context.Context, tenantID, jobID string, req SubmitRequest) (*document.Job, error) {
 	j, err := s.jobs.GetJob(ctx, tenantID, jobID)
 	if err != nil {
 		return nil, err
+	}
+	if req.ExtractionMode != "" {
+		if err := s.validateMode(req.ExtractionMode); err != nil {
+			return nil, err
+		}
+		now := s.now().UTC()
+		if err := j.SetExtractionMode(req.ExtractionMode, now); err != nil {
+			return nil, err
+		}
+		if err := s.jobs.UpdateJob(ctx, j); err != nil {
+			return nil, fmt.Errorf("update extraction_mode: %w", err)
+		}
 	}
 	if j.Status() == document.StatusAwaitingUpload {
 		if j, err = s.queue(ctx, j); err != nil {
