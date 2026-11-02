@@ -13,7 +13,7 @@ if ! command -v pg_lsclusters >/dev/null; then
   apt-get install -y postgresql
 fi
 
-CONF="$(ls -d /etc/postgresql/*/main | head -n1)"
+CONF="$(find /etc/postgresql -mindepth 2 -maxdepth 2 -type d -name main -print -quit)"
 if [[ ! -f "${CONF}/conf.d/yesbook.conf" ]]; then
   cat > "${CONF}/conf.d/yesbook.conf" <<EOF
 listen_addresses = '*'

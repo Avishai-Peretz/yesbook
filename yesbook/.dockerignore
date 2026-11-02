@@ -3,3 +3,5 @@ data/
 *.test
 *.out
 .git
+web/node_modules
+web/dist

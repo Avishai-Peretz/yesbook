@@ -16,11 +16,9 @@ services:
       interval: 2s
       retries: 15
 
-  # Optional OCR and table extraction for scans:
-  #   docker compose --profile docling up -d
-  #   YESBOOK_DOCLING_URL=http://localhost:5001
+  # Local OCR / layout / figure extraction for Automatic+images (default path).
+  # make dev starts this with postgres and sets YESBOOK_DOCLING_URL=http://localhost:5001
   docling:
-    profiles: ["docling"]
     image: quay.io/docling-project/docling-serve:latest
     ports:
       - "5001:5001"

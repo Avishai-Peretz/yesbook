@@ -21,9 +21,14 @@ steps:
     name: gcr.io/cloud-builders/docker
     args: [build, --build-arg, CMD=migrate, -t, "${_REPO}/migrate:${_TAG}", .]
     waitFor: ["-"]
+  - id: web
+    name: gcr.io/cloud-builders/docker
+    args: [build, -f, Dockerfile.web, -t, "${_REPO}/web:${_TAG}", .]
+    waitFor: ["-"]
 images:
   - "${_REPO}/document-api:${_TAG}"
   - "${_REPO}/content-api:${_TAG}"
   - "${_REPO}/outbox-publisher:${_TAG}"
   - "${_REPO}/worker:${_TAG}"
   - "${_REPO}/migrate:${_TAG}"
+  - "${_REPO}/web:${_TAG}"
