@@ -55,31 +55,37 @@ var (
 // Job is one uploaded PDF and its processing state. State changes go through
 // its methods so every transition is validated in one place.
 type Job struct {
-	id        string
-	tenantID  string
-	fileName  string
-	sizeBytes int64
-	status    Status
-	fileHash  string
-	versionID string
-	reason    string
-	claimedBy string
-	revision  int
-	createdAt time.Time
-	updatedAt time.Time
+	id             string
+	tenantID       string
+	fileName       string
+	sizeBytes      int64
+	status         Status
+	fileHash       string
+	versionID      string
+	reason         string
+	extractionMode ExtractionMode
+	claimedBy      string
+	revision       int
+	createdAt      time.Time
+	updatedAt      time.Time
 }
 
 // NewJobParams are the client-declared properties of a document.
 type NewJobParams struct {
-	TenantID    string
-	FileName    string
-	ContentType string
-	SizeBytes   int64
+	TenantID       string
+	FileName       string
+	ContentType    string
+	SizeBytes      int64
+	ExtractionMode ExtractionMode
 }
 
 // NewJob validates p and returns a job awaiting upload.
 func NewJob(id string, p NewJobParams, now time.Time) (*Job, error) {
 	name := strings.TrimSpace(p.FileName)
+	mode, err := ParseExtractionMode(string(p.ExtractionMode))
+	if err != nil {
+		return nil, err
+	}
 	switch {
 	case id == "" || p.TenantID == "":
 		return nil, fmt.Errorf("%w: id and tenant are required", ErrInvalid)
@@ -91,26 +97,44 @@ func NewJob(id string, p NewJobParams, now time.Time) (*Job, error) {
 		return nil, fmt.Errorf("%w: size_bytes must be between 1 and %d", ErrInvalid, MaxSizeBytes)
 	}
 	return &Job{
-		id:        id,
-		tenantID:  p.TenantID,
-		fileName:  name,
-		sizeBytes: p.SizeBytes,
-		status:    StatusAwaitingUpload,
-		createdAt: now,
-		updatedAt: now,
+		id:             id,
+		tenantID:       p.TenantID,
+		fileName:       name,
+		sizeBytes:      p.SizeBytes,
+		status:         StatusAwaitingUpload,
+		extractionMode: mode,
+		createdAt:      now,
+		updatedAt:      now,
 	}, nil
 }
 
-func (j *Job) ID() string           { return j.id }
-func (j *Job) TenantID() string     { return j.tenantID }
-func (j *Job) FileName() string     { return j.fileName }
-func (j *Job) SizeBytes() int64     { return j.sizeBytes }
-func (j *Job) Status() Status       { return j.status }
-func (j *Job) FileHash() string     { return j.fileHash }
-func (j *Job) VersionID() string    { return j.versionID }
-func (j *Job) Reason() string       { return j.reason }
-func (j *Job) CreatedAt() time.Time { return j.createdAt }
-func (j *Job) UpdatedAt() time.Time { return j.updatedAt }
+func (j *Job) ID() string                        { return j.id }
+func (j *Job) TenantID() string                  { return j.tenantID }
+func (j *Job) FileName() string                  { return j.fileName }
+func (j *Job) SizeBytes() int64                  { return j.sizeBytes }
+func (j *Job) Status() Status                    { return j.status }
+func (j *Job) FileHash() string                  { return j.fileHash }
+func (j *Job) VersionID() string                 { return j.versionID }
+func (j *Job) Reason() string                    { return j.reason }
+func (j *Job) ExtractionMode() ExtractionMode    { return j.extractionMode }
+func (j *Job) CreatedAt() time.Time              { return j.createdAt }
+func (j *Job) UpdatedAt() time.Time              { return j.updatedAt }
+
+// SetExtractionMode updates the mode while the job has not started processing.
+func (j *Job) SetExtractionMode(mode ExtractionMode, now time.Time) error {
+	parsed, err := ParseExtractionMode(string(mode))
+	if err != nil {
+		return err
+	}
+	switch j.status {
+	case StatusAwaitingUpload, StatusQueued:
+	default:
+		return fmt.Errorf("%w: extraction_mode can only change before processing", ErrTransition)
+	}
+	j.extractionMode = parsed
+	j.updatedAt = now
+	return nil
+}
 
 // StagingObject is the object name the client uploads the PDF to.
 func (j *Job) StagingObject() string {
@@ -218,52 +242,63 @@ func (j *Job) transitionError(to Status) error {
 
 // JobRecord is the persisted form of a Job.
 type JobRecord struct {
-	ID        string
-	TenantID  string
-	FileName  string
-	SizeBytes int64
-	Status    Status
-	FileHash  string
-	VersionID string
-	Reason    string
-	ClaimedBy string
-	Revision  int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             string
+	TenantID       string
+	FileName       string
+	SizeBytes      int64
+	Status         Status
+	FileHash       string
+	VersionID      string
+	Reason         string
+	ExtractionMode ExtractionMode
+	ClaimedBy      string
+	Revision       int
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 func (j *Job) Record() JobRecord {
+	mode := j.extractionMode
+	if mode == "" {
+		mode = ModeAutomatic
+	}
 	return JobRecord{
-		ID:        j.id,
-		TenantID:  j.tenantID,
-		FileName:  j.fileName,
-		SizeBytes: j.sizeBytes,
-		Status:    j.status,
-		FileHash:  j.fileHash,
-		VersionID: j.versionID,
-		Reason:    j.reason,
-		ClaimedBy: j.claimedBy,
-		Revision:  j.revision,
-		CreatedAt: j.createdAt,
-		UpdatedAt: j.updatedAt,
+		ID:             j.id,
+		TenantID:       j.tenantID,
+		FileName:       j.fileName,
+		SizeBytes:      j.sizeBytes,
+		Status:         j.status,
+		FileHash:       j.fileHash,
+		VersionID:      j.versionID,
+		Reason:         j.reason,
+		ExtractionMode: mode,
+		ClaimedBy:      j.claimedBy,
+		Revision:       j.revision,
+		CreatedAt:      j.createdAt,
+		UpdatedAt:      j.updatedAt,
 	}
 }
 
 // RestoreJob rebuilds a job loaded by a repository.
 func RestoreJob(r JobRecord) *Job {
+	mode := r.ExtractionMode
+	if mode == "" {
+		mode = ModeAutomatic
+	}
 	return &Job{
-		id:        r.ID,
-		tenantID:  r.TenantID,
-		fileName:  r.FileName,
-		sizeBytes: r.SizeBytes,
-		status:    r.Status,
-		fileHash:  r.FileHash,
-		versionID: r.VersionID,
-		reason:    r.Reason,
-		claimedBy: r.ClaimedBy,
-		revision:  r.Revision,
-		createdAt: r.CreatedAt,
-		updatedAt: r.UpdatedAt,
+		id:             r.ID,
+		tenantID:       r.TenantID,
+		fileName:       r.FileName,
+		sizeBytes:      r.SizeBytes,
+		status:         r.Status,
+		fileHash:       r.FileHash,
+		versionID:      r.VersionID,
+		reason:         r.Reason,
+		extractionMode: mode,
+		claimedBy:      r.ClaimedBy,
+		revision:       r.Revision,
+		createdAt:      r.CreatedAt,
+		updatedAt:      r.UpdatedAt,
 	}
 }
 

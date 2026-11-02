@@ -14,6 +14,9 @@ type Attempt struct {
 	CostMicros       int64
 	StartedAt        time.Time
 	FinishedAt       time.Time
+	ReasonCode       string
+	ReasonMessage    string
+	Decision         PathDecisionKind
 }
 
 // Spend is what a job has consumed so far, across worker restarts.
