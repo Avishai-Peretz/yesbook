@@ -108,17 +108,18 @@ func NewJob(id string, p NewJobParams, now time.Time) (*Job, error) {
 	}, nil
 }
 
-func (j *Job) ID() string                        { return j.id }
-func (j *Job) TenantID() string                  { return j.tenantID }
-func (j *Job) FileName() string                  { return j.fileName }
-func (j *Job) SizeBytes() int64                  { return j.sizeBytes }
-func (j *Job) Status() Status                    { return j.status }
-func (j *Job) FileHash() string                  { return j.fileHash }
-func (j *Job) VersionID() string                 { return j.versionID }
-func (j *Job) Reason() string                    { return j.reason }
-func (j *Job) ExtractionMode() ExtractionMode    { return j.extractionMode }
-func (j *Job) CreatedAt() time.Time              { return j.createdAt }
-func (j *Job) UpdatedAt() time.Time              { return j.updatedAt }
+func (j *Job) ID() string                     { return j.id }
+func (j *Job) TenantID() string               { return j.tenantID }
+func (j *Job) FileName() string               { return j.fileName }
+func (j *Job) SizeBytes() int64               { return j.sizeBytes }
+func (j *Job) Status() Status                 { return j.status }
+func (j *Job) FileHash() string               { return j.fileHash }
+func (j *Job) VersionID() string              { return j.versionID }
+func (j *Job) Reason() string                 { return j.reason }
+func (j *Job) ExtractionMode() ExtractionMode { return j.extractionMode }
+func (j *Job) ClaimedBy() string              { return j.claimedBy }
+func (j *Job) CreatedAt() time.Time           { return j.createdAt }
+func (j *Job) UpdatedAt() time.Time           { return j.updatedAt }
 
 // SetExtractionMode updates the mode while the job has not started processing.
 func (j *Job) SetExtractionMode(mode ExtractionMode, now time.Time) error {

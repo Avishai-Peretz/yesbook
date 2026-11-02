@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/avi-p/yesbook/internal/document"
 )
+
+const failRecordTimeout = 5 * time.Second
 
 const (
 	progressUnitPages     = "pages"
@@ -122,13 +125,14 @@ func (p *Pipeline) record(ctx context.Context, run progressRun, up progressUpdat
 }
 
 // failStages stores a failed event for each open stage, then returns cause.
-// The write uses a context that outlives cancellation so a retryable failure
-// is durable even when the run context is already done.
+// The write uses a short detached context so a retryable failure can still be
+// recorded after cancellation without hanging shutdown indefinitely.
 func (p *Pipeline) failStages(ctx context.Context, run progressRun, cause error, stages ...ProgressStage) error {
 	if cause == nil {
 		return nil
 	}
-	recCtx := context.WithoutCancel(ctx)
+	recCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), failRecordTimeout)
+	defer cancel()
 	reason := truncate(cause.Error(), MaxProgressReasonLength)
 	var recErr error
 	for _, stage := range stages {

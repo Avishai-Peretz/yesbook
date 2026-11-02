@@ -673,12 +673,38 @@ func TestBlockIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 
 	for range 2 {
-		if err := p.Block(ctx, tenant, j.ID(), "workflow deadline exceeded"); err != nil {
+		if err := p.Block(ctx, tenant, j.ID(), "workflow-1", "workflow deadline exceeded"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if got := f.job(t, j.ID()); got.Status() != document.StatusBlocked {
 		t.Errorf("status = %s, want blocked", got.Status())
+	}
+}
+
+func TestBlockSkipsForeignClaim(t *testing.T) {
+	f := newFixture(textPage(1, english))
+	j := f.queuedJob(t)
+	p := f.pipeline(t)
+	ctx := context.Background()
+
+	if err := j.Claim("owner", time.Hour, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.UpdateJob(ctx, j); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Block(ctx, tenant, j.ID(), "other-worker", "processing failed after retries"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.job(t, j.ID()); got.Status() != document.StatusProcessing {
+		t.Fatalf("status = %s, want processing", got.Status())
+	}
+	if err := p.Block(ctx, tenant, j.ID(), "owner", "processing failed after retries"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.job(t, j.ID()); got.Status() != document.StatusBlocked {
+		t.Fatalf("status = %s, want blocked", got.Status())
 	}
 }
 

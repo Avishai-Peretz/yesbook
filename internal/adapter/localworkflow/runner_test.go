@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,16 +13,19 @@ import (
 )
 
 type scripted struct {
-	calls int
+	calls atomic.Int32
 	fail  int
 	seen  chan struct{}
 	block chan struct{}
 }
 
 func (s *scripted) Process(ctx context.Context, _, _, _ string) (document.Status, error) {
-	s.calls++
+	n := int(s.calls.Add(1))
 	if s.seen != nil {
-		s.seen <- struct{}{}
+		select {
+		case s.seen <- struct{}{}:
+		default:
+		}
 	}
 	if s.block != nil {
 		select {
@@ -30,16 +34,16 @@ func (s *scripted) Process(ctx context.Context, _, _, _ string) (document.Status
 			return "", ctx.Err() // status unused on failure
 		}
 	}
-	if s.calls <= s.fail {
+	if n <= s.fail {
 		return "", errors.New("temporary")
 	}
 	return document.StatusReady, nil
 }
 
-func (s *scripted) Block(_ context.Context, _, _, _ string) error { return nil }
+func (s *scripted) Block(_ context.Context, _, _, _, _ string) error { return nil }
 
 func TestCloseStopsARunningAttempt(t *testing.T) {
-	processor := &scripted{seen: make(chan struct{}), block: make(chan struct{})}
+	processor := &scripted{seen: make(chan struct{}, 1), block: make(chan struct{})}
 	runner := New(processor, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err := runner.Start(context.Background(), "tenant", "job"); err != nil {
 		t.Fatal(err)
@@ -70,7 +74,31 @@ func TestRetriesThenBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner.wg.Wait()
-	if processor.calls != defaultAttempts {
-		t.Fatalf("calls = %d, want %d", processor.calls, defaultAttempts)
+	if got := int(processor.calls.Load()); got != defaultAttempts {
+		t.Fatalf("calls = %d, want %d", got, defaultAttempts)
 	}
+}
+
+func TestStartDeduplicatesActiveJobs(t *testing.T) {
+	processor := &scripted{seen: make(chan struct{}, 2), block: make(chan struct{})}
+	runner := New(processor, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	defer runner.Close()
+
+	if err := runner.Start(context.Background(), "tenant", "job"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Start(context.Background(), "tenant", "job"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-processor.seen:
+	case <-time.After(2 * time.Second):
+		t.Fatal("process did not start")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := processor.calls.Load(); got != 1 {
+		t.Fatalf("calls = %d, want 1 concurrent run", got)
+	}
+	close(processor.block)
+	runner.wg.Wait()
 }

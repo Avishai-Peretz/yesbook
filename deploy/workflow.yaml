@@ -46,7 +46,9 @@ main:
                       taskCount: 1
                       timeout: 300s
                       containerOverrides:
-                        - args: ${["block", tenantId, jobId, "processing failed after retries"]}
+                        # Pass the same workerId so Block cannot cancel a
+                        # healthier duplicate execution that still owns the job.
+                        - args: ${["block", tenantId, jobId, workerId, "processing failed after retries"]}
             - fail:
                 raise: ${e}
     - done:

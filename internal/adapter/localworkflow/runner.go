@@ -28,7 +28,7 @@ const (
 // Processor is the part of processing.Pipeline the runner drives.
 type Processor interface {
 	Process(ctx context.Context, tenantID, jobID, worker string) (document.Status, error)
-	Block(ctx context.Context, tenantID, jobID, reason string) error
+	Block(ctx context.Context, tenantID, jobID, worker, reason string) error
 }
 
 type Runner struct {
@@ -44,6 +44,9 @@ type Runner struct {
 	ctx  context.Context
 	stop context.CancelFunc
 	wg   sync.WaitGroup
+
+	mu     sync.Mutex
+	active map[string]struct{}
 }
 
 func New(p Processor, log *slog.Logger) *Runner {
@@ -51,13 +54,30 @@ func New(p Processor, log *slog.Logger) *Runner {
 	return &Runner{
 		p: p, log: log, attempts: defaultAttempts, initial: defaultInitial, maxBackoff: defaultMaxBackoff,
 		multiplier: defaultMultiplier, deadline: defaultDeadline, blockTimeout: defaultBlockTimeout,
-		ctx: ctx, stop: stop,
+		ctx: ctx, stop: stop, active: make(map[string]struct{}),
 	}
 }
 
 // Start returns immediately; processing continues in the background.
+// Concurrent Starts for the same tenant/job are ignored while a run is active.
 func (r *Runner) Start(_ context.Context, tenantID, jobID string) error {
-	r.wg.Go(func() { r.run(tenantID, jobID) }) //nolint:contextcheck // runs outlive the request that started them and stop on Close
+	key := tenantID + "\x00" + jobID
+	r.mu.Lock()
+	if _, ok := r.active[key]; ok {
+		r.mu.Unlock()
+		return nil
+	}
+	r.active[key] = struct{}{}
+	r.mu.Unlock()
+
+	r.wg.Go(func() { //nolint:contextcheck // runs outlive the request that started them and stop on Close
+		defer func() {
+			r.mu.Lock()
+			delete(r.active, key)
+			r.mu.Unlock()
+		}()
+		r.run(tenantID, jobID)
+	})
 	return nil
 }
 
@@ -89,7 +109,7 @@ func (r *Runner) run(tenantID, jobID string) {
 	}
 	blockCtx, blockCancel := context.WithTimeout(context.WithoutCancel(ctx), r.blockTimeout)
 	defer blockCancel()
-	if err := r.p.Block(blockCtx, tenantID, jobID, "processing failed after retries"); err != nil {
+	if err := r.p.Block(blockCtx, tenantID, jobID, worker, "processing failed after retries"); err != nil {
 		log.ErrorContext(ctx, "could not block job", "err", err)
 	}
 }

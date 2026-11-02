@@ -49,7 +49,9 @@ func DefaultConfig() Config {
 			MaxDuration:   30 * time.Minute,
 			MaxCostMicros: 2_000_000,
 		},
-		Lease:              15 * time.Minute,
+		// Keep the lease above the Cloud Workflows / local runner deadline
+		// so a healthy worker is not reclaimed mid-run.
+		Lease:              35 * time.Minute,
 		AttemptTimeout:     2 * time.Minute,
 		MaxPages:           500,
 		MinPartialCoverage: 0.5,
@@ -182,7 +184,10 @@ func (p *Pipeline) Process(ctx context.Context, tenantID, jobID, worker string) 
 }
 
 // Block marks a job blocked after the workflow gave up on it.
-func (p *Pipeline) Block(ctx context.Context, tenantID, jobID, reason string) error {
+// worker must be the execution that is giving up; a processing job owned by
+// another worker whose lease has not expired is left alone so a losing
+// duplicate execution cannot cancel a healthy run.
+func (p *Pipeline) Block(ctx context.Context, tenantID, jobID, worker, reason string) error {
 	j, err := p.jobs.GetJob(ctx, tenantID, jobID)
 	if err != nil {
 		return fmt.Errorf("load job: %w", err)
@@ -191,6 +196,15 @@ func (p *Pipeline) Block(ctx context.Context, tenantID, jobID, reason string) er
 		return nil
 	}
 	now := p.now().UTC()
+	if j.Status() == document.StatusProcessing {
+		owned := worker != "" && j.ClaimedBy() == worker
+		leaseExpired := now.Sub(j.UpdatedAt()) > p.cfg.Lease
+		if !owned && !leaseExpired {
+			p.log.InfoContext(ctx, "skipping block; job owned by another worker",
+				"tenant_id", tenantID, "job_id", jobID, "worker", worker, "claimed_by", j.ClaimedBy())
+			return nil
+		}
+	}
 	if err := j.Block(reason, now); err != nil {
 		return err
 	}
