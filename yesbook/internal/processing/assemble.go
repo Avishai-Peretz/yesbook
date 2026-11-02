@@ -37,13 +37,20 @@ type assembly struct {
 // assemble joins accepted blocks in page order, merges tables that continue
 // across pages, and decides the document status from target coverage.
 func assemble(results []targetResult, minPartialCoverage float64) assembly {
+	a, accepted := collectResults(results)
+	a.blocks = finalizeBlocks(a.blocks)
+	a.outcome, a.reason = decideOutcome(len(results), accepted, len(a.review), len(a.missing), a.coverage, minPartialCoverage)
+	return a
+}
+
+func collectResults(results []targetResult) (assembly, int) {
 	var a assembly
 	accepted := 0
 	for _, r := range results {
 		if r.quality != nil {
 			a.quality = append(a.quality, *r.quality)
 		}
-		item := document.ReviewItem{TargetID: r.target.ID, Pages: r.target.Pages, Reason: r.reason}
+		item := reviewItemFrom(r)
 		switch r.state {
 		case targetAccepted:
 			accepted++
@@ -52,32 +59,58 @@ func assemble(results []targetResult, minPartialCoverage float64) assembly {
 			}
 		case targetReview:
 			a.review = append(a.review, item)
+			// Keep the best candidate blocks so reviewers can see what was extracted.
+			if r.extraction != nil {
+				a.blocks = append(a.blocks, r.extraction.Blocks...)
+			}
 		case targetFailed:
 			a.missing = append(a.missing, item)
 		}
 	}
-	slices.SortStableFunc(a.blocks, func(x, y document.Block) int { return x.Page - y.Page })
-	a.blocks = mergeTables(a.blocks)
-
 	if len(results) > 0 {
 		a.coverage = float64(accepted) / float64(len(results))
 	}
-	switch {
-	case len(results) == 0:
-		a.outcome, a.reason = document.StatusBlocked, "document has no pages"
-	case accepted == len(results):
-		a.outcome = document.StatusReady
-	case len(a.review) > 0:
-		a.outcome = document.StatusNeedsReview
-		a.reason = fmt.Sprintf("%d of %d pages flagged for review", len(a.review), len(results))
-	case accepted > 0 && a.coverage >= minPartialCoverage:
-		a.outcome = document.StatusPartial
-		a.reason = fmt.Sprintf("%d of %d pages could not be extracted", len(a.missing), len(results))
-	default:
-		a.outcome = document.StatusBlocked
-		a.reason = fmt.Sprintf("only %d of %d pages passed validation", accepted, len(results))
+	return a, accepted
+}
+
+func reviewItemFrom(r targetResult) document.ReviewItem {
+	item := document.ReviewItem{TargetID: r.target.ID, Pages: r.target.Pages, Reason: r.reason}
+	if r.quality == nil {
+		return item
 	}
-	return a
+	failed := failedCheckNames(r.quality.Checks)
+	if len(failed) > 0 {
+		item.FailedChecks = failed
+		reason := document.ReasonForFailedChecks(failed)
+		item.Code = reason.Code
+		if item.Reason == "" {
+			item.Reason = reason.Message
+		}
+	}
+	if item.Reason == "" {
+		item.Reason = r.quality.Reason
+	}
+	return item
+}
+
+func finalizeBlocks(blocks []document.Block) []document.Block {
+	slices.SortStableFunc(blocks, func(x, y document.Block) int { return x.Page - y.Page })
+	return mergeTables(blocks)
+}
+
+func decideOutcome(total, accepted, review, missing int, coverage, minPartialCoverage float64) (document.Status, string) {
+	switch {
+	case total == 0:
+		return document.StatusBlocked, "document has no pages"
+	case accepted == total:
+		return document.StatusReady, ""
+	case review > 0:
+		return document.StatusNeedsReview, fmt.Sprintf("%d of %d pages flagged for review", review, total)
+	case accepted > 0 && coverage >= minPartialCoverage:
+		return document.StatusPartial, fmt.Sprintf("%d of %d pages could not be extracted", missing, total)
+	default:
+		return document.StatusBlocked, fmt.Sprintf("only %d of %d pages passed validation", accepted, total)
+	}
 }
 
 // mergeTables joins a table that ends one page with a table that starts the

@@ -57,6 +57,12 @@ type inspector struct{ info processing.PDFInfo }
 
 func (i inspector) Inspect(context.Context, []byte) (processing.PDFInfo, error) { return i.info, nil }
 
+type failingInspector struct{ err error }
+
+func (f failingInspector) Inspect(context.Context, []byte) (processing.PDFInfo, error) {
+	return processing.PDFInfo{}, f.err
+}
+
 // extractor returns one paragraph with the text produced by respond; an
 // error from respond simulates an extractor failure.
 type extractor struct {
@@ -78,7 +84,11 @@ func (e *extractor) Extract(_ context.Context, req processing.ExtractRequest) (d
 		return document.Extraction{}, err
 	}
 	return document.Extraction{
-		Blocks:     []document.Block{{Kind: document.BlockParagraph, Text: text}},
+		Blocks: []document.Block{{
+			Kind: document.BlockParagraph,
+			Text: text,
+			BBox: &document.BBox{Left: 72, Top: 720, Right: 400, Bottom: 700},
+		}},
 		CostMicros: 1000,
 	}, nil
 }
@@ -91,24 +101,55 @@ func (e *extractor) callCount() int {
 
 func echoTextLayer(t document.Target) (string, error) { return t.TextLayer, nil }
 
+// blocksExtractor returns arbitrary blocks so tests can exercise figure escalation.
+type blocksExtractor struct {
+	name    string
+	respond func(t document.Target) ([]document.Block, error)
+	mu      sync.Mutex
+	calls   []document.Target
+}
+
+func (e *blocksExtractor) Name() string    { return e.name }
+func (e *blocksExtractor) Version() string { return "1" }
+
+func (e *blocksExtractor) Extract(_ context.Context, req processing.ExtractRequest) (document.Extraction, error) {
+	e.mu.Lock()
+	e.calls = append(e.calls, req.Target)
+	e.mu.Unlock()
+	blocks, err := e.respond(req.Target)
+	if err != nil {
+		return document.Extraction{}, err
+	}
+	return document.Extraction{Blocks: blocks, CostMicros: 1000}, nil
+}
+
+func (e *blocksExtractor) callCount() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.calls)
+}
+
 type fixture struct {
-	store   *memory.Store
-	objects *objects
-	pdf     []byte
-	info    processing.PDFInfo
-	chains  map[document.ContentKind][]processing.Extractor
-	cfg     processing.Config
-	ids     int
+	store          *memory.Store
+	objects        *objects
+	pdf            []byte
+	info           processing.PDFInfo
+	chains         map[document.ContentKind][]processing.Extractor
+	cfg            processing.Config
+	ids            int
+	recordProgress bool
+	inspectErr     error
 }
 
 func newFixture(pages ...processing.PageInfo) *fixture {
 	return &fixture{
-		store:   memory.New(),
-		objects: newObjects(),
-		pdf:     []byte("%PDF-1.7 test document"),
-		info:    processing.PDFInfo{Pages: pages},
-		chains:  map[document.ContentKind][]processing.Extractor{},
-		cfg:     processing.DefaultConfig(),
+		store:          memory.New(),
+		objects:        newObjects(),
+		pdf:            []byte("%PDF-1.7 test document"),
+		info:           processing.PDFInfo{Pages: pages},
+		chains:         map[document.ContentKind][]processing.Extractor{},
+		cfg:            processing.DefaultConfig(),
+		recordProgress: true,
 	}
 }
 
@@ -119,16 +160,24 @@ func (f *fixture) newID() string {
 
 func (f *fixture) pipeline(t *testing.T) *processing.Pipeline {
 	t.Helper()
-	p, err := processing.NewPipeline(processing.Dependencies{
+	var ins processing.Inspector = inspector{info: f.info}
+	if f.inspectErr != nil {
+		ins = failingInspector{err: f.inspectErr}
+	}
+	deps := processing.Dependencies{
 		Jobs:      f.store,
 		Versions:  f.store,
 		Attempts:  f.store,
 		Objects:   f.objects,
-		Inspector: inspector{info: f.info},
+		Inspector: ins,
 		Router:    processing.NewRouter(f.chains),
 		Now:       func() time.Time { return t0 },
 		NewID:     f.newID,
-	}, f.cfg)
+	}
+	if f.recordProgress {
+		deps.Progress = f.store
+	}
+	p, err := processing.NewPipeline(deps, f.cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,8 +332,147 @@ func TestProcessEscalatesToNextExtractor(t *testing.T) {
 	}
 }
 
+func TestProcessEscalatesWhenEmbeddedImagesLackFigures(t *testing.T) {
+	f := newFixture(processing.PageInfo{Number: 1, Text: english, Images: 1})
+	pdfium := &extractor{name: "pdfium", respond: echoTextLayer}
+	docling := &extractor{name: "docling", respond: echoTextLayer}
+	gemini := &blocksExtractor{name: "gemini", respond: func(t document.Target) ([]document.Block, error) {
+		return []document.Block{
+			{Kind: document.BlockParagraph, Text: t.TextLayer},
+			{Kind: document.BlockFigure, Text: "Portrait photo"},
+		}, nil
+	}}
+	f.chains[document.ContentText] = []processing.Extractor{pdfium, docling, gemini}
+	j := f.queuedJob(t)
+
+	status, err := f.pipeline(t).Process(context.Background(), tenant, j.ID(), "w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != document.StatusReady {
+		t.Fatalf("status = %s, want ready", status)
+	}
+	if pdfium.callCount() != 1 || docling.callCount() != 1 || gemini.callCount() != 1 {
+		t.Fatalf("calls pdfium=%d docling=%d gemini=%d, want 1 each", pdfium.callCount(), docling.callCount(), gemini.callCount())
+	}
+	c := f.content(t, f.job(t, j.ID()).VersionID())
+	foundFigure := false
+	for _, b := range c.Blocks {
+		if b.Kind == document.BlockFigure {
+			foundFigure = true
+			if b.Provenance.Extractor != "gemini" {
+				t.Errorf("figure extractor = %s, want gemini", b.Provenance.Extractor)
+			}
+		}
+	}
+	if !foundFigure {
+		t.Fatalf("blocks = %+v, want a figure from gemini", c.Blocks)
+	}
+	if n := len(f.store.Attempts()); n != 3 {
+		t.Fatalf("attempts = %d, want 3", n)
+	}
+}
+
+// CV scenario: Automatic+images, Docling unset (not in chain), Gemini configured.
+// PDFium must decline figures_missing and escalate to Gemini — not jump to empty review.
+func TestProcessEscalatesPastUnsetDoclingToGemini(t *testing.T) {
+	f := newFixture(processing.PageInfo{Number: 1, Text: english, Images: 1})
+	pdfium := &extractor{name: "pdfium", respond: echoTextLayer}
+	gemini := &blocksExtractor{name: "gemini", respond: func(t document.Target) ([]document.Block, error) {
+		return []document.Block{
+			{Kind: document.BlockParagraph, Text: t.TextLayer, BBox: &document.BBox{Left: 1, Top: 10, Right: 2, Bottom: 9}},
+			{Kind: document.BlockFigure, Text: "CV portrait"},
+		}, nil
+	}}
+	f.chains[document.ContentText] = []processing.Extractor{pdfium, gemini}
+	j := f.queuedJob(t)
+
+	status, err := f.pipeline(t).Process(context.Background(), tenant, j.ID(), "w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != document.StatusReady {
+		t.Fatalf("status = %s reason %q, want ready", status, f.job(t, j.ID()).Reason())
+	}
+	if pdfium.callCount() != 1 {
+		t.Fatalf("pdfium calls = %d, want 1", pdfium.callCount())
+	}
+	if gemini.callCount() != 1 {
+		t.Fatalf("gemini calls = %d, want 1 (must escalate when Docling is unset)", gemini.callCount())
+	}
+	attempts := f.store.Attempts()
+	if len(attempts) != 2 {
+		t.Fatalf("attempts = %d, want 2 (pdfium declined + gemini chosen)", len(attempts))
+	}
+	if attempts[0].ReasonCode != document.ReasonFiguresMissing {
+		t.Errorf("pdfium reason = %s, want figures_missing", attempts[0].ReasonCode)
+	}
+	if attempts[1].Extractor != "gemini" || attempts[1].Decision != document.DecisionChosen {
+		t.Errorf("second attempt = %+v, want chosen gemini", attempts[1])
+	}
+	events, err := f.store.ProgressEvents(context.Background(), tenant, j.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundUnset := false
+	for _, ev := range events {
+		if ev.ReasonCode == document.ReasonExtractorUnset {
+			foundUnset = true
+			break
+		}
+	}
+	if !foundUnset {
+		t.Fatal("expected extractor_unset progress when Docling is not configured")
+	}
+}
+
+func TestProcessNeedsReviewKeepsBlocksWhenChainExhausted(t *testing.T) {
+	f := newFixture(processing.PageInfo{Number: 1, Text: english, Images: 1})
+	pdfium := &extractor{name: "pdfium", respond: echoTextLayer}
+	f.chains[document.ContentText] = []processing.Extractor{pdfium}
+	j := f.queuedJob(t)
+
+	status, err := f.pipeline(t).Process(context.Background(), tenant, j.ID(), "w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != document.StatusNeedsReview {
+		t.Fatalf("status = %s, want needs_review", status)
+	}
+	c := f.content(t, f.job(t, j.ID()).VersionID())
+	if len(c.Blocks) == 0 {
+		t.Fatal("needs_review content must keep candidate blocks for review")
+	}
+	if len(c.Review) != 1 {
+		t.Fatalf("review items = %d, want 1", len(c.Review))
+	}
+	if c.Review[0].Code != document.ReasonFiguresMissing {
+		t.Errorf("review code = %q, want figures_missing", c.Review[0].Code)
+	}
+	if !strings.Contains(strings.Join(c.Review[0].FailedChecks, ","), "figures") {
+		t.Errorf("failed_checks = %v, want figures", c.Review[0].FailedChecks)
+	}
+	events, err := f.store.ProgressEvents(context.Background(), tenant, j.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundExhausted := false
+	for _, ev := range events {
+		if ev.ReasonCode == document.ReasonChainExhausted {
+			foundExhausted = true
+			if !strings.Contains(ev.ReasonMessage, "no further extractors") {
+				t.Errorf("chain_exhausted message = %q", ev.ReasonMessage)
+			}
+		}
+	}
+	if !foundExhausted {
+		t.Fatal("expected chain_exhausted when only pdfium is configured")
+	}
+}
+
 func TestProcessRetryAddsNeighbourContext(t *testing.T) {
-	f := newFixture(textPage(1, english), processing.PageInfo{Number: 2, Images: 1})
+	// Short text, no images → ContentScan without triggering the figures check.
+	f := newFixture(textPage(1, english), processing.PageInfo{Number: 2, Text: "scan"})
 	failing := &extractor{name: "docling", respond: func(document.Target) (string, error) {
 		return "", errors.New("service unavailable")
 	}}
