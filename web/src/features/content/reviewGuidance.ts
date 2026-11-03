@@ -45,26 +45,26 @@ export function buildReviewGuidance(
     decisionCodes.includes("figures_missing");
 
   let recommendedAction =
-    "Review the flagged pages, then re-upload or pin a stronger extractor and submit again.";
+    "Review the flagged pages, then upload the document again with a stronger extraction mode.";
   if (missingFigures && doclingUnset) {
     recommendedAction =
-      "Start Docling locally (make dev / docker compose up docling) so Automatic+images can extract figures, or pin Gemini/OpenAI and re-submit.";
+      "Figures were missing and Docling was not available during processing. Upload again after Docling is configured, or pin Gemini/OpenAI.";
   } else if (missingFigures && chainExhausted) {
     recommendedAction =
-      "No further extractors were configured after PDFium. Enable Docling (YESBOOK_DOCLING_URL) or set a Gemini/OpenAI key, then re-submit.";
+      "No further extractors were configured after PDFium. Upload again after enabling Docling or a managed vision extractor, or pin Gemini/OpenAI.";
   } else if (missingFigures) {
     recommendedAction =
-      "Figures were missing from the accepted text pass. Pin Gemini (or enable Docling) and re-submit so the chain can escalate.";
+      "Figures were missing from the accepted text pass. Upload again and pin Gemini (or enable Docling) so the chain can escalate.";
   } else if (chainExhausted) {
     recommendedAction =
-      "The extractor chain ended with no further tools configured. Enable Docling or a managed vision extractor, then re-submit.";
+      "The extractor chain ended with no further tools configured. Upload again after enabling Docling or a managed vision extractor.";
   } else if (doclingUnset) {
     recommendedAction =
-      "Docling was unset during Automatic+images. Start Docling for local figure/layout extraction, then re-submit.";
+      "Docling was unset during Automatic+images. Upload again after Docling is available for figure and layout extraction.";
   }
 
   return {
-    coverageLabel: `${Math.round(content.coverage * 100)}% accepted`,
+    coverageLabel: `${String(Math.round(content.coverage * 100))}% accepted`,
     failedCodes: unique([...failedCodes, ...decisionCodes.filter((code) => code === "figures_missing" || code === "extractor_unset" || code === "chain_exhausted")]),
     failedChecks,
     missingFigures,

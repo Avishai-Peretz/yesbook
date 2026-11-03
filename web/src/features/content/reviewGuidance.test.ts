@@ -16,12 +16,12 @@ describe("review guidance", () => {
     expect(guidance.failedCodes).toEqual(
       expect.arrayContaining(["figures_missing", "extractor_unset", "chain_exhausted"]),
     );
-    expect(guidance.recommendedAction).toMatch(/Enable Docling|Start Docling|Gemini/i);
+    expect(guidance.recommendedAction).toMatch(/Upload again|Docling|Gemini/i);
   });
 
   it("falls back to a generic review action for other quality flags", () => {
     const guidance = buildReviewGuidance(reviewContent.content);
     expect(guidance.missingFigures).toBe(false);
-    expect(guidance.recommendedAction).toMatch(/re-upload|pin a stronger extractor/i);
+    expect(guidance.recommendedAction).toMatch(/upload the document again|stronger extraction mode/i);
   });
 });

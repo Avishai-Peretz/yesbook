@@ -170,6 +170,33 @@ h2 {
   background: #29825e;
 }
 
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+}
+
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.55rem 1rem;
+  border: 1px solid #175d45;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #175d45;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+a.button.primary {
+  background: #175d45;
+  color: #fff;
+}
+
 code {
   font-size: 0.9em;
 }

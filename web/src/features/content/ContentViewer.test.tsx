@@ -136,7 +136,7 @@ describe("ContentViewer", () => {
     expect(screen.getByText("0% accepted")).toBeInTheDocument();
     expect(screen.getAllByText("figures_missing").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Embedded images were not represented/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Start Docling locally/i)).toBeInTheDocument();
+    expect(screen.getByText(/Upload again after Docling is configured/i)).toBeInTheDocument();
   });
 
   it("falls back to caption when a figure has no asset URL", () => {

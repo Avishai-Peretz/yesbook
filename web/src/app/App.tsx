@@ -73,17 +73,27 @@ function HomePage() {
           aria-hidden="true"
         />
         <div>
-          <h2>Local API</h2>
-          {health.isPending && <p>Checking availability…</p>}
-          {health.isSuccess && <p>Available</p>}
+          <h2>Console gateway</h2>
+          {health.isPending && <p>Checking same-origin /api/healthz…</p>}
+          {health.isSuccess && (
+            <p>Gateway reachable. This check does not probe backend dependencies.</p>
+          )}
           {health.isError && (
             <p>
-              Unavailable. Start <code>yesbook-dev</code> on port 8080 and try
-              again.
+              Gateway unreachable. Confirm the web BFF or Vite proxy is running,
+              then retry.
             </p>
           )}
         </div>
       </div>
+      <p className="hero-actions">
+        <Link className="button primary" to="/documents/new">
+          Upload a PDF
+        </Link>
+        <Link className="button" to="/documents">
+          View documents
+        </Link>
+      </p>
     </section>
   );
 }

@@ -32,6 +32,11 @@ describe("App", () => {
     expect(
       screen.getByRole("heading", { name: "Production pipeline console" }),
     ).toBeInTheDocument();
-    expect(await screen.findByText("Available")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Gateway reachable/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Upload a PDF" }),
+    ).toBeInTheDocument();
   });
 });
